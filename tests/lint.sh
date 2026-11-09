@@ -26,6 +26,14 @@ else
 	fail=1
 fi
 
+# R6: calibrate log used $n_second (unset) instead of $n_seconds
+if "$SHELLCHECK" -f gcc -i SC2154 battery.sh | grep -q 'n_second'; then
+	echo "FAIL - SC2154: n_second referenced but not assigned"
+	fail=1
+else
+	echo "ok   - SC2154: no unassigned n_second"
+fi
+
 if "$SHELLCHECK" -S error -x tests/*.sh >/dev/null; then
 	echo "ok   - shellcheck -S error tests/*.sh"
 else

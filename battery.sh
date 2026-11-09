@@ -2661,7 +2661,7 @@ if [[ "$action" == "calibrate" ]]; then
 	fi
 	
 	print_calibrate_log $calibrate_time Yes $health_before $(get_battery_health)%
-	echo "$n_days$n_hours $n_minutes $n_second" >> $calibrate_log
+	echo "$n_days$n_hours $n_minutes $n_seconds" >> $calibrate_log
 
 	safe_rm $calibrate_pidfile 2>/dev/null
 	$battery_binary maintain recover # Recover old maintain status
