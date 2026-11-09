@@ -179,6 +179,25 @@ test_r2_empty_metric_fails_safe() {
 	bt_teardown
 }
 
+# Regression (PR #1 review): bc prints .8 (no leading zero) for 0.8%. The level
+# validator must accept it; otherwise a nearly empty battery looks "unreadable".
+test_r2_sub_one_percent_level_is_valid() {
+	bt_setup smc_macos26.txt ioreg_lowbatt
+	bt_run 30 status
+	check "0.8%: status shows a leading-zero level" grep -q 'Battery at 0.8%' <<<"$BT_OUT"
+	bt_run 3 charge 90
+	check "0.8%: charge does not take the unreadable-level path" bash -c "! grep -q 'cannot read battery level' <<<\"\$1\"" _ "$BT_OUT"
+	# The stub battery never gains charge, so a healthy loop ends at the original stall
+	# watchdog ("charge abnormal"), i.e. it got past the level check and kept monitoring.
+	check "0.8%: charge got past the level check (reached the stall watchdog)" grep -q 'battery charge abnormal' <<<"$BT_OUT"
+	bt_teardown
+
+	bt_setup smc_macos26.txt ioreg_lowbatt
+	bt_run 3 discharge 0
+	check "0.8%: discharge does not take the unreadable-level path" bash -c "! grep -q 'cannot read battery level' <<<\"\$1\"" _ "$BT_OUT"
+	bt_teardown
+}
+
 # ------------------------------------------- R3: validate before killing anything
 test_r3_maintain_bad_args_keep_running_loop() {
 	local args

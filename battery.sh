@@ -965,7 +965,9 @@ function get_accurate_battery_percentage() {
 		return 1 # unreadable: print nothing, callers must treat this as an error
 	fi
 	accurate_battery_percentage=$(echo "scale=1; $CurrentCapacity*100/$MaxCapacity" | bc)
-	echo $accurate_battery_percentage
+	# bc omits the leading zero below 1% (prints ".8"); normalise so every consumer gets "0.8"
+	[[ $accurate_battery_percentage == .* ]] && accurate_battery_percentage="0$accurate_battery_percentage"
+	echo "$accurate_battery_percentage"
 }
 
 # true if $1 looks like a percentage produced by get_accurate_battery_percentage
