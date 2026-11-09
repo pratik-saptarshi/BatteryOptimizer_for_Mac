@@ -34,6 +34,7 @@ shutdown_path=$HOME/Library/LaunchAgents/battery_shutdown.plist
 daily_log=$configfolder/daily.log
 calibrate_log=$configfolder/calibrate.log
 ssd_log=$configfolder/ssd.log
+unsupported_notified=$configfolder/unsupported_notified
 github_link="https://raw.githubusercontent.com/js4jiang5/BatteryOptimizer_for_MAC/main"
 battery_binary=$binfolder/battery
 smc_binary="$binfolder/smc"
@@ -195,19 +196,34 @@ thirdsetting=$4
 #}
 
 # check the availability of SMC keys
-[[ $($smc_binary -k BCLM -r) =~ "no data" ]] && has_BCLM=false || has_BCLM=true;
-[[ $($smc_binary -k CH0B -r) =~ "no data" ]] && has_CH0B=false || has_CH0B=true;
-[[ $($smc_binary -k CH0C -r) =~ "no data" ]] && has_CH0C=false || has_CH0C=true;
-[[ $($smc_binary -k CH0I -r) =~ "no data" ]] && has_CH0I=false || has_CH0I=true;
-[[ $($smc_binary -k CH0J -r) =~ "no data" || $($smc_binary -k CH0J -r) =~ "Error" ]] && has_CH0J=false || has_CH0J=true;
-[[ $($smc_binary -k CH0K -r) =~ "no data" ]] && has_CH0K=false || has_CH0K=true;
-[[ $($smc_binary -k ACEN -r) =~ "no data" ]] && has_ACEN=false || has_ACEN=true;
-[[ $($smc_binary -k ACLC -r) =~ "no data" ]] && has_ACLC=false || has_ACLC=true;
-[[ $($smc_binary -k CHWA -r) =~ "no data" ]] && has_CHWA=false || has_CHWA=true;
-[[ $($smc_binary -k BFCL -r) =~ "no data" ]] && has_BFCL=false || has_BFCL=true;
-[[ $($smc_binary -k ACFP -r) =~ "no data" ]] && has_ACFP=false || has_ACFP=true;
-[[ $($smc_binary -k CHTE -r) =~ "no data" ]] && has_CHTE=false || has_CHTE=true;
-[[ $($smc_binary -k CHIE -r) =~ "no data" ]] && has_CHIE=false || has_CHIE=true;
+# Each key is classified tri-state: "present" only if the read returned data ("bytes"),
+# "absent" only if smc answered "no data", "unknown" otherwise (e.g. "Error: SMCReadKey()").
+# has_<KEY> is true only for "present", so an unreadable key is never treated as usable.
+function smc_key_state() {
+	local out
+	out=$($smc_binary -k "$1" -r 2>&1)
+	if [[ $out =~ "bytes" ]]; then
+		echo "present"
+	elif [[ $out =~ "no data" ]]; then
+		echo "absent"
+	else
+		echo "unknown"
+	fi
+}
+function smc_key_usable() { [[ "$1" == "present" ]] && echo true || echo false; }
+state_BCLM=$(smc_key_state BCLM); has_BCLM=$(smc_key_usable "$state_BCLM")
+state_CH0B=$(smc_key_state CH0B); has_CH0B=$(smc_key_usable "$state_CH0B")
+state_CH0C=$(smc_key_state CH0C); has_CH0C=$(smc_key_usable "$state_CH0C")
+state_CH0I=$(smc_key_state CH0I); has_CH0I=$(smc_key_usable "$state_CH0I")
+state_CH0J=$(smc_key_state CH0J); has_CH0J=$(smc_key_usable "$state_CH0J")
+state_CH0K=$(smc_key_state CH0K); has_CH0K=$(smc_key_usable "$state_CH0K")
+state_ACEN=$(smc_key_state ACEN); has_ACEN=$(smc_key_usable "$state_ACEN")
+state_ACLC=$(smc_key_state ACLC); has_ACLC=$(smc_key_usable "$state_ACLC")
+state_CHWA=$(smc_key_state CHWA); has_CHWA=$(smc_key_usable "$state_CHWA")
+state_BFCL=$(smc_key_state BFCL); has_BFCL=$(smc_key_usable "$state_BFCL")
+state_ACFP=$(smc_key_state ACFP); has_ACFP=$(smc_key_usable "$state_ACFP")
+state_CHTE=$(smc_key_state CHTE); has_CHTE=$(smc_key_usable "$state_CHTE")
+state_CHIE=$(smc_key_state CHIE); has_CHIE=$(smc_key_usable "$state_CHIE")
 
 ## ###############
 ## Helpers
@@ -784,19 +800,98 @@ function get_smc_charging_status() {
 				else
 					echo "disabled"
 				fi
+			elif $has_CH0B; then
+				hex_status=$(read_smc_hex CH0B)
+				if [[ "$hex_status" == "00" ]]; then
+					echo "enabled"
+				else
+					echo "disabled"
+				fi
 			else
-				echo "enabled"
+				echo "unknown" # no charge-control key: we cannot know, and must not claim "enabled"
 			fi
 		fi
 	else
-		bclm_hex_status=$(read_smc_hex BCLM)
-		acen_hex_status=$(read_smc_hex ACEN)
-		if [[ "$bclm_hex_status" == "64" ]] && [[ "$acen_hex_status" == "01" ]]; then
-			echo "enabled"
+		if $has_BCLM; then
+			bclm_hex_status=$(read_smc_hex BCLM)
+			acen_hex_status=$(read_smc_hex ACEN)
+			if [[ "$bclm_hex_status" == "64" ]] && [[ "$acen_hex_status" == "01" ]]; then
+				echo "enabled"
+			else
+				echo "disabled"
+			fi
 		else
-			echo "disabled"
+			echo "unknown"
 		fi
 	fi
+}
+
+# Which SMC key can stop charging on this Mac: ch0b/ch0c, chte, bclm, none or unknown
+function get_charge_actuator() {
+	if $has_CH0B || $has_CH0C; then
+		echo "ch0b/ch0c"
+	elif $has_CHTE; then
+		echo "chte"
+	elif $has_BCLM; then
+		echo "bclm"
+	elif [[ "$state_CH0B $state_CH0C $state_CHTE $state_BCLM" =~ "unknown" ]]; then
+		echo "unknown"
+	else
+		echo "none"
+	fi
+}
+
+function reprobe_charge_keys() {
+	state_BCLM=$(smc_key_state BCLM); has_BCLM=$(smc_key_usable "$state_BCLM")
+	state_CH0B=$(smc_key_state CH0B); has_CH0B=$(smc_key_usable "$state_CH0B")
+	state_CH0C=$(smc_key_state CH0C); has_CH0C=$(smc_key_usable "$state_CH0C")
+	state_CHTE=$(smc_key_state CHTE); has_CHTE=$(smc_key_usable "$state_CHTE")
+}
+
+# Best-effort, read-only: the charge limit macOS itself enforces, e.g. "80% (manualChargeLimit)".
+# Prints nothing if `pmset -g battlimit` is unavailable or its format is not recognised.
+function get_native_charge_limit() {
+	local out soc reason
+	out=$(pmset -g battlimit 2>/dev/null)
+	soc=$(echo "$out" | sed -n -E 's/^[[:space:]]*chargeSocLimitSoc[[:space:]]*=[[:space:]]*([0-9]+);.*/\1/p' | head -n 1)
+	reason=$(echo "$out" | sed -n -E 's/^[[:space:]]*chargeSocLimitReason[[:space:]]*=[[:space:]]*([A-Za-z0-9_]+);.*/\1/p' | head -n 1)
+	if [[ $soc =~ ^[0-9]+$ ]] && [[ -n $reason ]]; then
+		echo "${soc}% ($reason)"
+	fi
+}
+
+# Refuse to run a charge limiter that has nothing to actuate (e.g. macOS 27 removed
+# CH0B/CH0C/CHTE). Returns 1 after logging (and notifying once) if unsupported.
+function require_charge_actuator() {
+	local native_limit
+	charge_actuator=$(get_charge_actuator)
+	if [[ "$charge_actuator" == "unknown" ]]; then
+		log "SMC charge-control keys could not be read, retrying in 2 seconds"
+		sleep 2
+		reprobe_charge_keys
+		charge_actuator=$(get_charge_actuator)
+		if [[ "$charge_actuator" == "unknown" ]]; then
+			log "SMC charge-control keys still unreadable, treating this Mac as unsupported"
+			charge_actuator="none"
+		fi
+	fi
+	if [[ "$charge_actuator" == "none" ]]; then
+		log "❌ charge limiting unsupported on this Mac/macOS: no CH0B/CH0C/CHTE/BCLM key"
+		native_limit=$(get_native_charge_limit)
+		if [[ -n $native_limit ]]; then
+			log "macOS charge limit active: $native_limit"
+		fi
+		if ! test -f "$unsupported_notified"; then
+			touch "$unsupported_notified"
+			if $is_TW; then
+				osascript -e 'display notification "此 Mac/macOS 不支援充電上限控制 (not supported: 沒有 CH0B/CH0C/CHTE/BCLM key)，請改用 系統設定 > 電池 > 充電上限" with title "BatteryOptimizer" sound name "Blow"'
+			else
+				osascript -e 'display notification "Charge limiting is not supported on this Mac/macOS (no CH0B/CH0C/CHTE/BCLM key). Use System Settings > Battery > Charge Limit instead." with title "BatteryOptimizer" sound name "Blow"'
+			fi
+		fi
+		return 1
+	fi
+	return 0
 }
 
 function get_smc_discharging_status() {
@@ -1703,6 +1798,9 @@ fi
 
 # Maintain at level
 if [[ "$action" == "maintain_synchronous" ]]; then
+	# Never run a limiter loop that cannot actuate anything; exit non-zero instead
+	require_charge_actuator || exit 1
+
 	if [[ $(get_cpu_type) == "apple" ]]; then # reset to default when reboot
 		if $has_CHWA; then sudo $smc_binary -k CHWA -w 00; fi
 	fi
@@ -2041,6 +2139,11 @@ if [[ "$action" == "maintain" ]]; then
 				exit 0
 			fi
 		fi
+	fi
+
+	# Refuse before touching any running process, config or daemon if nothing can be actuated
+	if [[ "$setting" != "stop" ]]; then
+		require_charge_actuator || exit 1
 	fi
 
 	# Kill old process silently
@@ -2540,7 +2643,18 @@ if [[ "$action" == "status" ]]; then
 		log "Battery health $(get_battery_health)%, Cycle $(get_cycle)"
 	fi
 
-	if [[ "$(maintain_is_running)" == "1" ]]; then
+	native_limit=$(get_native_charge_limit)
+	if [[ -n $native_limit ]]; then
+		log "macOS charge limit active: $native_limit"
+	fi
+
+	if [[ "$(get_charge_actuator)" == "none" ]]; then
+		if $is_TW; then
+			log "未限制充電 NOT LIMITING (no charge-control key)"
+		else
+			log "NOT LIMITING (no charge-control key)"
+		fi
+	elif [[ "$(maintain_is_running)" == "1" ]]; then
 		maintain_percentage=$(read_config maintain_percentage)
 		maintain_status=$(echo $(cat "$pidfile" 2>/dev/null) | awk '{print $2}')
 		if [[ "$maintain_status" == "active" ]]; then

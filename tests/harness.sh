@@ -55,7 +55,11 @@ sudo() {
 chown() { bt_log "chown $*"; return 0; }
 chmod() { bt_log "chmod $*"; return 0; }
 visudo() { bt_log "visudo $*"; return "${BT_VISUDO_RC:-0}"; }
-osascript() { bt_log "osascript $*"; echo "${BT_OSA_ANSWER:-No}"; return 0; }
+osascript() {
+	bt_log "osascript $*"
+	case "$*" in *"button returned"*) echo "${BT_OSA_ANSWER:-No}" ;; esac
+	return 0
+}
 launchctl() { bt_log "launchctl $*"; return 0; }
 defaults() { bt_log "defaults $*"; echo "en_US"; }
 open() { bt_log "BLOCKED open $*"; return 0; }

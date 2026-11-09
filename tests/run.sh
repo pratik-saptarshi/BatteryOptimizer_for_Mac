@@ -77,6 +77,63 @@ test_r0_version_runs_in_temp_home() {
 	bt_teardown
 }
 
+# ------------------------------------------------- R1: fail-loud capability gate
+test_r1_maintain_refused_without_actuator_macos27() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	bt_run 30 maintain 74
+	check "maintain 74 exits non-zero on 27" [ "$BT_RC" -ne 0 ]
+	check "maintain 74 says charge limiting is unsupported" grep -q 'charge limiting unsupported on this Mac/macOS: no CH0B/CH0C/CHTE/BCLM key' <<<"$BT_OUT"
+	check "maintain 74 reports the native macOS limit" grep -q 'macOS charge limit active: 80% (manualChargeLimit)' <<<"$BT_OUT"
+	check "maintain 74 wrote nothing to the SMC" [ ! -s "$T/smc_writes.log" ]
+	check "maintain 74 created no LaunchAgent" [ ! -e "$T/home/Library/LaunchAgents/battery.plist" ]
+	check "maintain 74 started no maintain_synchronous" bash -c "! /usr/bin/pgrep -f '$T/bin/battery maintain_synchronous' >/dev/null"
+
+	bt_run 30 status
+	check "status says NOT LIMITING" grep -q 'NOT LIMITING (no charge-control key)' <<<"$BT_OUT"
+	check "status reports the native macOS limit" grep -q 'macOS charge limit active: 80% (manualChargeLimit)' <<<"$BT_OUT"
+	bt_run 30 status_csv
+	check "status_csv charging state is unknown, not enabled" [ "$(echo "$BT_OUT" | cut -d, -f3)" == "unknown" ]
+
+	bt_run 15 maintain_synchronous 74
+	check "maintain_synchronous 74 exits non-zero by itself (no loop)" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	bt_run 15 maintain_synchronous recover
+	check "maintain_synchronous recover exits non-zero by itself" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	check "no SMC writes from maintain_synchronous" [ ! -s "$T/smc_writes.log" ]
+	check "unsupported notification shown at most once" [ "$(grep -c 'osascript.*not supported' "$T/calls.log")" -le 1 ]
+	bt_teardown
+}
+
+test_r1_maintain_still_works_macos26() {
+	bt_setup smc_macos26.txt ioreg_macos27
+	bt_run 30 maintain 74
+	check "maintain 74 exits 0 on the 26 fixture" [ "$BT_RC" -eq 0 ]
+	check "maintain 74 created the LaunchAgent" [ -f "$T/home/Library/LaunchAgents/battery.plist" ]
+	check "loop disables charging via CHTE -w 01000000" bt_wait_for 20 "$T/smc_writes.log" "CHTE -w 01000000"
+	bt_run 30 status
+	check "status does not say NOT LIMITING on 26" bash -c "! grep -q 'NOT LIMITING' <<<\"\$1\"" _ "$BT_OUT"
+	bt_teardown
+}
+
+test_r1_intel_bclm_path_unchanged() {
+	bt_setup smc_intel.txt ioreg_legacy
+	bt_start_bg maintain_synchronous 74
+	check "intel loop disables charging via BCLM -w 0a" bt_wait_for 20 "$T/smc_writes.log" "BCLM -w 0a"
+	kill "$BT_BG_PID" 2>/dev/null
+	wait "$BT_BG_PID" 2>/dev/null
+	bt_teardown
+}
+
+test_r1_unreadable_key_is_not_present() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	# CHTE answers with an error instead of "no data": must not count as present.
+	sed -i '' 's/^CHTE	.*/CHTE	Error: SMCReadKey() = e00002c1/' "$T/fx/smc.txt"
+	bt_run 30 maintain_synchronous 74
+	check "unknown CHTE: maintain_synchronous exits non-zero by itself" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	check "unknown CHTE: probe was retried and reported" grep -q 'still unreadable' <<<"$BT_OUT"
+	check "unknown CHTE: no SMC writes" [ ! -s "$T/smc_writes.log" ]
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
