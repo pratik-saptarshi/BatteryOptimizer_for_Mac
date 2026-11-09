@@ -2203,6 +2203,24 @@ if [[ "$action" == "maintain" ]]; then
 		fi
 	fi
 
+	# Validate every argument before anything is killed, written or started
+	if ! { [[ "$setting" == "stop" ]] || [[ "$setting" == "recover" ]]; }; then
+		if ! valid_percentage "$setting" || (( 10#$setting < 10 )); then
+			log "Error: $setting is not a valid setting for battery maintain. Please use a number between 10 and 100, or an action keyword like 'stop' or 'recover'."
+			exit 1
+		fi
+		if [[ -n "$subsetting" ]] && [[ "$subsetting" != "--force-discharge" ]]; then
+			if ! valid_percentage "$subsetting" || (( 10#$subsetting < 5 || 10#$subsetting > 99 )); then
+				log "Error: sailing target $subsetting is not valid. Please use a number between 5 and 99"
+				exit 1
+			fi
+			if (( 10#$subsetting >= 10#$setting )); then
+				log "Error: sailing target $subsetting larger than or equal to maintain level $setting is not allowed"
+				exit 1
+			fi
+		fi
+	fi
+
 	# Refuse before touching any running process, config or daemon if nothing can be actuated
 	if [[ "$setting" != "stop" ]]; then
 		require_charge_actuator || exit 1
@@ -2232,16 +2250,8 @@ if [[ "$action" == "maintain" ]]; then
 		safe_rm $calibrate_pidfile 2>/dev/null
 		log "🚨 Calibration process have been stopped"
 	fi
-	
-	# Check if setting is value between 0 and 100
-	if ! valid_percentage "$setting"; then
-		# log "Called with $setting $action"
-		# If non 0-100 setting is not a special keyword, exit with an error.
-		if ! { [[ "$setting" == "stop" ]] || [[ "$setting" == "recover" ]]; }; then
-			log "Error: $setting is not a valid setting for battery maintain. Please use a number between 0 and 100, or an action keyword like 'stop' or 'recover'."
-			exit 1
-		fi
-	fi
+
+	# (setting/sailing target were validated above, before anything was killed)
 
 	# Start maintenance script
 	nohup $battery_binary maintain_synchronous $setting $subsetting $thirdsetting >> $logfile &

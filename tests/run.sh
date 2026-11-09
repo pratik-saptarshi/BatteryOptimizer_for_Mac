@@ -179,6 +179,40 @@ test_r2_empty_metric_fails_safe() {
 	bt_teardown
 }
 
+# ------------------------------------------- R3: validate before killing anything
+test_r3_maintain_bad_args_keep_running_loop() {
+	local args
+	for args in "abc" "0" "5" "101" "80 90" "80 80" "80 3" "80 abc"; do
+		bt_setup smc_macos26.txt ioreg_macos27
+		mkdir -p "$T/home/.battery"
+		bt_dummy
+		echo "$BT_DUMMY_PID active" >"$T/home/.battery/battery.pid"
+		local cal_pid
+		cal_pid="$(command sleep 300 >/dev/null 2>&1 & echo $!)"
+		echo "$cal_pid" >>"$T/killable"
+		echo "$cal_pid" >"$T/home/.battery/calibrate.pid"
+		# shellcheck disable=SC2086
+		bt_run 30 maintain $args
+		check "maintain $args exits non-zero" [ "$BT_RC" -ne 0 ]
+		check "maintain $args leaves the running loop alive" kill -0 "$BT_DUMMY_PID"
+		check "maintain $args leaves calibration alive" kill -0 "$cal_pid"
+		check "maintain $args wrote no config" bash -c "! grep -q maintain_percentage '$T/home/.battery/config_battery' 2>/dev/null"
+		bt_teardown
+	done
+}
+
+test_r3_maintain_valid_args_replace_loop() {
+	bt_setup smc_macos26.txt ioreg_macos27
+	mkdir -p "$T/home/.battery"
+	bt_dummy
+	echo "$BT_DUMMY_PID active" >"$T/home/.battery/battery.pid"
+	bt_run 30 maintain 80 50
+	check "maintain 80 50 exits 0" [ "$BT_RC" -eq 0 ]
+	check "maintain 80 50 replaces the old loop" bash -c "! kill -0 $BT_DUMMY_PID 2>/dev/null"
+	check "maintain 80 50 saved the setting" grep -q '^maintain_percentage = 80 50$' "$T/home/.battery/config_battery"
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
