@@ -52,7 +52,8 @@ touch $logfile
 logsize=$(stat -f%z "$logfile")
 max_logsize_bytes=5000000
 if ((logsize > max_logsize_bytes)); then
-	tail -n 100 $logfile >$logfile
+	# write to a temp file first: `tail $f >$f` truncates $f before tail reads it
+	tail -n 100 "$logfile" >"$logfile.tmp" && mv "$logfile.tmp" "$logfile"
 fi
 
 # CLI help message

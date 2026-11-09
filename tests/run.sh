@@ -286,6 +286,20 @@ test_r4_schedule_rejects_bad_day_explicitly() {
 	bt_teardown
 }
 
+# ----------------------------------------------------------------- R5: log trim
+test_r5_log_trim_keeps_last_100_lines() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	mkdir -p "$T/home/.battery"
+	awk 'BEGIN{for(i=0;i<120000;i++) printf "line %06d padding padding padding padding\n", i}' >"$T/home/.battery/battery.log"
+	check "fixture log is over 5 MB" [ "$(stat -f%z "$T/home/.battery/battery.log")" -gt 5000000 ]
+	bt_run 30 version
+	check "trimmed log has exactly 100 lines" [ "$(wc -l <"$T/home/.battery/battery.log" | tr -d ' ')" -eq 100 ]
+	check "trimmed log keeps the newest line" [ "$(tail -n 1 "$T/home/.battery/battery.log")" == "line 119999 padding padding padding padding" ]
+	check "trimmed log starts at line 119900" [ "$(head -n 1 "$T/home/.battery/battery.log")" == "line 119900 padding padding padding padding" ]
+	check "no temp file left behind" [ ! -e "$T/home/.battery/battery.log.tmp" ]
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
