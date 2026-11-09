@@ -352,60 +352,38 @@ function logd() {
 	echo -e "$(date +%Y/%m/%d) $1"
 }
 
+# Validators accept only plain decimal numbers: no sign, no leading zeros (so "08" is
+# never read as octal), at most 3 digits (no overflow), compared in base 10.
+function valid_number_in_range() { # value min max
+	[[ "$1" =~ ^(0|[1-9][0-9]{0,2})$ ]] && (( 10#$1 >= $2 && 10#$1 <= $3 ))
+}
+
 function valid_percentage() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 100 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 100
 }
 
 function valid_month_period() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 3 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 3
 }
 
 function valid_day() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 28 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 28
 }
 
 function valid_hour() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 23 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 23
 }
 
 function valid_minute() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 59 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 59
 }
 
 function valid_weekday() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 6 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 6
 }
 
 function valid_week_period() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 12 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 12
 }
 
 function format00() {
@@ -497,6 +475,7 @@ function check_next_calibration_date() {
 		if [[ $day_loc ]]; then
 			for i_day in {1..4}; do
 				value=$(echo $schedule | awk '{print $"'"$((day_loc+i_day))"'"}')
+				[[ $value =~ ^0[1-9]$ ]] && value=${value#0} # schedules saved by older versions may hold "08"
 				if valid_day $value; then
 					days[$n_days]=$(format00 $value)
 					n_days=$(($n_days+1))
@@ -2960,7 +2939,7 @@ if [[ "$action" == "schedule" ]]; then
 				days[$n_days]=$value
 				n_days=$(($n_days+1))
 			else
-				if [[ $value -eq 29 ]] || [[ $value -eq 30 ]] || [[ $value -eq 31 ]]; then
+				if [[ $value =~ ^[0-9]+$ ]]; then # a number, but not a valid day (e.g. 0, 08, 29)
 					log "Error: day must be in [1..28]"
 					exit 1
 				fi

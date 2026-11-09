@@ -213,6 +213,79 @@ test_r3_maintain_valid_args_replace_loop() {
 	bt_teardown
 }
 
+# -------------------------------------------------------------- R4: validators
+# The validators are pure (regex + arithmetic), so they are extracted from
+# battery.sh and evaluated on their own.
+bt_validators() {
+	sed -n '/^function valid_percentage()/,/^function format00()/p' "$BT_REPO/battery.sh" | sed '$d'
+	sed -n '/^function valid_number_in_range()/,/^}/p' "$BT_REPO/battery.sh"
+}
+
+test_r4_validators() {
+	local defs out T_ERR
+	bt_setup smc_macos27.txt ioreg_macos27
+	T_ERR="$T/validators.err"
+	defs="$(bt_validators)"
+	out="$(/bin/bash -c "$defs"'
+		t() { local f=$1; shift; local v; for v in "$@"; do if $f "$v"; then echo "$f $v accept"; else echo "$f $v reject"; fi; done; }
+		t valid_percentage 08 080 18446744073709551624 101 -1 "" "1 2" abc 0x10 0 8 10 100
+		t valid_day 0 29 08 1 28
+		t valid_hour 24 08 0 23
+		t valid_minute 60 09 0 59
+		t valid_weekday 7 06 0 6
+		t valid_week_period 0 13 1 12
+		t valid_month_period 0 4 1 3
+	' 2>"$T_ERR")"
+	BT_OUT="$out"
+	local exp
+	for exp in "valid_percentage 08 reject" "valid_percentage 080 reject" "valid_percentage 18446744073709551624 reject" \
+		"valid_percentage 101 reject" "valid_percentage -1 reject" "valid_percentage  reject" "valid_percentage abc reject" \
+		"valid_percentage 0x10 reject" "valid_percentage 0 accept" "valid_percentage 8 accept" "valid_percentage 10 accept" \
+		"valid_percentage 100 accept" "valid_day 0 reject" "valid_day 29 reject" "valid_day 08 reject" "valid_day 1 accept" \
+		"valid_day 28 accept" "valid_hour 24 reject" "valid_hour 08 reject" "valid_hour 0 accept" "valid_hour 23 accept" \
+		"valid_minute 60 reject" "valid_minute 09 reject" "valid_minute 0 accept" "valid_minute 59 accept" \
+		"valid_weekday 7 reject" "valid_weekday 06 reject" "valid_weekday 0 accept" "valid_weekday 6 accept" \
+		"valid_week_period 0 reject" "valid_week_period 13 reject" "valid_week_period 1 accept" "valid_week_period 12 accept" \
+		"valid_month_period 0 reject" "valid_month_period 4 reject" "valid_month_period 1 accept" "valid_month_period 3 accept"; do
+		check "$exp" grep -qxF -- "$exp" <<<"$out"
+	done
+	BT_ERR="$(cat "$T_ERR")"
+	check "validators print nothing on stderr (no 'value too great for base')" [ ! -s "$T_ERR" ]
+	bt_teardown
+}
+
+test_r4_charge_rejects_octal() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	local v
+	for v in 08 080 18446744073709551624; do
+		bt_run 30 charge "$v"
+		check "charge $v is rejected" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+		check "charge $v: says 'not a valid setting'" grep -q 'not a valid setting' <<<"$BT_OUT"
+		check "charge $v: no 'value too great for base'" bash -c "! grep -q 'value too great' <<<\"\$1\"" _ "$BT_ERR"
+	done
+	bt_teardown
+}
+
+test_r4_stored_zero_padded_schedule_day_still_works() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	mkdir -p "$T/home/.battery"
+	echo "calibrate_schedule = Schedule calibration on day 08 at 9:00" >"$T/home/.battery/config_battery"
+	bt_run 30 schedule enable
+	local next
+	next="$(sed -n 's/^calibrate_next = //p' "$T/home/.battery/config_battery")"
+	check "stored 'day 08' still yields a next calibration time" grep -qE '^[0-9]{9,}$' <<<"$next"
+	check "stored 'day 08': no arithmetic errors" bash -c "! grep -q 'value too great' <<<\"\$1\"" _ "$BT_ERR"
+	bt_teardown
+}
+
+test_r4_schedule_rejects_bad_day_explicitly() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	bt_run 30 schedule day 08
+	check "schedule day 08 is an explicit error" test "$BT_RC" -ne 0
+	check "schedule day 08: no 'value too great for base'" bash -c "! grep -q 'value too great' <<<\"\$1\"" _ "$BT_ERR"
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
