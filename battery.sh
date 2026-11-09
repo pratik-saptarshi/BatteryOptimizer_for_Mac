@@ -52,8 +52,11 @@ touch $logfile
 logsize=$(stat -f%z "$logfile")
 max_logsize_bytes=5000000
 if ((logsize > max_logsize_bytes)); then
-	# write to a temp file first: `tail $f >$f` truncates $f before tail reads it
-	tail -n 100 "$logfile" >"$logfile.tmp" && mv "$logfile.tmp" "$logfile"
+	# Snapshot to a temp file first (`tail $f >$f` truncates $f before tail reads it), then write
+	# it back IN PLACE. Do not `mv` over $logfile: a running maintain daemon holds `>> $logfile`
+	# open, and replacing the inode would leave it logging into a deleted file.
+	tail -n 100 "$logfile" >"$logfile.tmp" && cat "$logfile.tmp" >"$logfile"
+	rm -f "$logfile.tmp"
 fi
 
 # CLI help message

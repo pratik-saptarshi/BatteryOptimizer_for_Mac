@@ -319,6 +319,26 @@ test_r5_log_trim_keeps_last_100_lines() {
 	bt_teardown
 }
 
+# Regression (PR #1 review): the maintain daemon holds `>> battery.log` open. Trimming by
+# replacing the file (mv) leaves it writing to a deleted inode; the trim must keep the inode.
+test_r5_log_trim_keeps_inode_for_running_daemon() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	mkdir -p "$T/home/.battery"
+	local log="$T/home/.battery/battery.log" inode_before inode_after
+	awk 'BEGIN{for(i=0;i<120000;i++) printf "line %06d padding padding padding padding\n", i}' >"$log"
+	exec 7>>"$log" # stand-in for the daemon's inherited O_APPEND descriptor
+	inode_before="$(stat -f%i "$log")"
+	bt_run 30 version
+	inode_after="$(stat -f%i "$log")"
+	echo "daemon line written after trim" >&7
+	exec 7>&-
+	check "trim keeps the same inode" [ "$inode_before" == "$inode_after" ]
+	check "a descriptor held open across the trim still writes to the visible log" grep -q "daemon line written after trim" "$log"
+	check "still trimmed to 100 lines (+1 daemon line)" [ "$(wc -l <"$log" | tr -d ' ')" -eq 101 ]
+	check "no temp file left behind" [ ! -e "$log.tmp" ]
+	bt_teardown
+}
+
 # ------------------------------------------------------------ R7: curl hardening
 test_r7_changelog_fetch_times_out() {
 	bt_setup smc_macos27.txt ioreg_macos27
