@@ -113,7 +113,8 @@ curl() {
 		hang)
 			# Emulates a server that never answers. With --max-time curl gives up (time
 			# compressed to 1s here); without it the call blocks far past any test timeout.
-			if [[ -n "$mt" ]]; then command sleep 1; else command sleep 20; fi
+			# argv[0] carries the test root so teardown can find and stop the sleeper.
+			if [[ -n "$mt" ]]; then (exec -a "$BT_ROOT/curl-hang" sleep 1); else (exec -a "$BT_ROOT/curl-hang" sleep 20); fi
 			return 28 ;;
 		*) return 22 ;;
 	esac
@@ -279,7 +280,7 @@ bt_teardown() {
 	[[ -n "$root" && -d "$root" ]] || return 0
 	case "$root" in "$BT_BASE"/bt.*) ;; *) echo "refusing to tear down $root" >&2; return 1 ;; esac
 	# Stop any copy still running from this root (the pattern is the unique temp path).
-	/usr/bin/pkill -TERM -f "$root/bin/battery" 2>/dev/null
+	/usr/bin/pkill -TERM -f "$root/" 2>/dev/null
 	if [[ -f "$root/killable" ]]; then
 		while read -r p; do [[ "$p" =~ ^[0-9]+$ ]] && kill "$p" 2>/dev/null; done <"$root/killable"
 	fi

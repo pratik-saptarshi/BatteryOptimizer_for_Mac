@@ -34,6 +34,34 @@ else
 	echo "ok   - SC2154: no unassigned n_second"
 fi
 
+# R7: every curl must ignore ~/.curlrc (-q must be the FIRST argument), because
+# update_silent and update.sh run curl as root with the caller's HOME.
+bad="$(grep -n 'curl ' battery.sh update.sh | grep -v 'curl -q ' || true)"
+if [[ -z "$bad" ]]; then
+	echo "ok   - every curl in battery.sh/update.sh starts with 'curl -q'"
+else
+	echo "FAIL - curl without a leading -q:"
+	echo "$bad"
+	fail=1
+fi
+# R7: fetches made by the maintain loop and the changelog helpers must time out.
+bad="$(grep -n 'curl ' battery.sh | grep -E 'CHANGELOG|github_link/\$1|latest_battery_sh=' | grep -v -- '--max-time' || true)"
+n_loop="$(grep -c 'latest_battery_sh=.*curl ' battery.sh)"
+if [[ -z "$bad" && "$n_loop" -ge 1 ]]; then
+	echo "ok   - loop/changelog curls have --max-time"
+else
+	echo "FAIL - loop/changelog curls without --max-time (or loop fetch not found):"
+	echo "$bad"
+	fail=1
+fi
+# R7: the update download that root executes must fail on HTTP errors.
+if grep -q 'curl -q -fsS "\$github_link/update.sh"' battery.sh; then
+	echo "ok   - update.sh download uses -f"
+else
+	echo "FAIL - update.sh download (update_silent) lacks -f"
+	fail=1
+fi
+
 if "$SHELLCHECK" -S error -x tests/*.sh >/dev/null; then
 	echo "ok   - shellcheck -S error tests/*.sh"
 else

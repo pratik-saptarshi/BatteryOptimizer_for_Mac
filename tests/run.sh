@@ -300,6 +300,17 @@ test_r5_log_trim_keeps_last_100_lines() {
 	bt_teardown
 }
 
+# ------------------------------------------------------------ R7: curl hardening
+test_r7_changelog_fetch_times_out() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	# The curl stub never answers; with --max-time it gives up (compressed to 1 s),
+	# without it each call blocks 20 s and this 12 s budget is exceeded.
+	BT_CURL_MODE=hang bt_run 12 changelog
+	check "changelog returns within the timeout when the server never answers" [ "$BT_TIMED_OUT" -eq 0 ]
+	check "every curl call passed -q first" bash -c "! grep '^curl ' '$T/calls.log' | grep -v '^curl -q ' | grep -q ."
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done

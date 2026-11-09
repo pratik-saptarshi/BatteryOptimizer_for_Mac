@@ -314,22 +314,22 @@ function ha_webhook() {
 	WEBHOOKID=$(read_config webhookid)
 	if [[ $WEBHOOKID ]]; then
 		if [ $4 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\" , \"voltage\": \"$3\" , \"health\": \"$4\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		elif [ $3 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\" , \"voltage\": \"$3\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		elif [ $2 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		else
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" }" \
 			$DST/api/webhook/$WEBHOOKID 
@@ -1097,9 +1097,9 @@ function get_parameter() { # get parameter value from configuration file. the fo
 
 function get_changelog() { # get the latest changelog
 	if [[ -z $1 ]]; then
-		changelog=$(curl -sSL $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
 	else
-		changelog=$(curl -sSL $github_link/$1 | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/$1 | sed s:\":'\\"':g 2>&1)
 	fi
 
 	n_lines=0
@@ -1132,9 +1132,9 @@ function get_changelog() { # get the latest changelog
 
 function get_version() { # get the latest version number
 	if [[ -z $1 ]]; then
-		changelog=$(curl -sSL $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
 	else
-		changelog=$(curl -sSL $github_link/$1 | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/$1 | sed s:\":'\\"':g 2>&1)
 	fi
 
 	while read -r "line"; do
@@ -1478,12 +1478,12 @@ fi
 
 # Reinstall helper
 if [[ "$action" == "reinstall" ]]; then
-	echo "This will run curl -sS $github_link/setup.sh   | bash"
+	echo "This will run curl -q -sS $github_link/setup.sh   | bash"
 	if [[ ! "$setting" == "silent" ]]; then
 		echo "Press any key to continue"
 		read
 	fi
-	curl -sS $github_link/setup.sh | bash
+	curl -q -sS $github_link/setup.sh | bash
 	exit 0
 fi
 
@@ -1500,7 +1500,7 @@ if [[ "$action" == "update_silent" ]]; then
 	else
 		github_link="https://raw.githubusercontent.com/js4jiang5/BatteryOptimizer_for_MAC/main"
 	fi
-	battery_new=$(curl -sSL "$github_link/battery.sh")
+	battery_new=$(curl -q -sSL "$github_link/battery.sh")
 	battery_new_version=$(get_parameter "$battery_new" "BATTERY_CLI_VERSION")
 	
 	if [[ -z $battery_new_version ]]; then
@@ -1539,7 +1539,7 @@ if [[ "$action" == "update_silent" ]]; then
 		
 		if [[ $answer == "Yes" ]]; then
 			tmp_update=$(mktemp)
-			if curl -sS "$github_link/update.sh" -o "$tmp_update"; then
+			if curl -q -fsS "$github_link/update.sh" -o "$tmp_update"; then
 				bash "$tmp_update"
 				safe_rm "$tmp_update"
 			else
@@ -2019,8 +2019,10 @@ if [[ "$action" == "maintain_synchronous" ]]; then
 
 		# check if there is update version
 		if [[ $(date +%s) -gt $check_update_timeout ]]; then
-			updated="$(curl -sS $github_link/battery.sh | grep "$informed_version")"
-			new_version="$(curl -sS $github_link/battery.sh | grep "BATTERY_CLI_VERSION=")"
+			# one bounded fetch: a stalled network must not freeze the charge-control loop
+			latest_battery_sh="$(curl -q -sS --connect-timeout 5 --max-time 20 $github_link/battery.sh)"
+			updated="$(echo "$latest_battery_sh" | grep "$informed_version")"
+			new_version="$(echo "$latest_battery_sh" | grep "BATTERY_CLI_VERSION=")"
 			new_version="$(echo $new_version | awk '{print $1}')"
 			new_version=$(echo ${new_version/"BATTERY_CLI_VERSION="} | tr -d \")
 			
