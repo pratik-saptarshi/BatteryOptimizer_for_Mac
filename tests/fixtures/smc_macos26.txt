@@ -1,0 +1,19 @@
+# SYNTHETIC: Apple Silicon on macOS 26 (CHTE charge-inhibit key present, CH0B/CH0C absent).
+# Derived from smc_macos27.txt with CHTE added. Not a real capture.
+CHTE	  CHTE  [ui32]  0 (bytes 00 00 00 00)
+CH0B	  CH0B  [    ]  no data
+CH0C	  CH0C  [    ]  no data
+CH0I	  CH0I  [    ]  no data
+CH0J	Error: SMCReadKey() = e00002c1
+CH0K	  CH0K  [    ]  no data
+CHIE	  CHIE  [hex_]  (bytes 00)
+CHWA	  CHWA  [ui8 ]  0 (bytes 00)
+BCLM	  BCLM  [    ]  no data
+ACLC	  ACLC  [ui8 ]  3 (bytes 03)
+ACEN	  ACEN  [    ]  no data
+BFCL	  BFCL  [    ]  no data
+ACFP	  ACFP  [flag]  (bytes 01)
+CHBI	  CHBI  [ui32]  0 (bytes 00 00 00 00)
+B0AC	  B0AC  [si16]  -1200 (bytes b0 fb)
+BRSC	  BRSC  [ui8 ]  79 (bytes 4f)
+TB0T	  TB0T  [flt ]  30 (bytes 60 66 ee 41)

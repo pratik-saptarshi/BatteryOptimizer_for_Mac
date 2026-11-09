@@ -1,0 +1,19 @@
+# Captured read-only on an M3 Max, macOS 27.2 (26B123), 2026-11-09, via `smc -k KEY -r`.
+# Format: KEY<TAB>output line. Keys not listed answer "  KEY  [    ]  no data".
+CHTE	  CHTE  [    ]  no data
+CH0B	  CH0B  [    ]  no data
+CH0C	  CH0C  [    ]  no data
+CH0I	  CH0I  [    ]  no data
+CH0J	Error: SMCReadKey() = e00002c1
+CH0K	  CH0K  [    ]  no data
+CHIE	  CHIE  [hex_]  (bytes 00)
+CHWA	  CHWA  [    ]  no data
+BCLM	  BCLM  [    ]  no data
+ACLC	  ACLC  [ui8 ]  3 (bytes 03)
+ACEN	  ACEN  [    ]  no data
+BFCL	  BFCL  [    ]  no data
+ACFP	  ACFP  [flag]  (bytes 01)
+CHBI	  CHBI  [ui32]  0 (bytes 00 00 00 00)
+B0AC	  B0AC  [si16]  0 (bytes 00 00)
+BRSC	  BRSC  [ui8 ]  79 (bytes 4f)
+TB0T	  TB0T  [flt ]  30 (bytes 60 66 ee 41)

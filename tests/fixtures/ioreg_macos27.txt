@@ -1,0 +1,29 @@
++-o AppleSmartBattery  <class AppleSmartBattery, id 0x100000000, registered, matched, active, busy 0 (13 ms), retain 9>
+  | {
+  |   "TimeRemaining" = 65535
+  |   "AvgTimeToEmpty" = 65535
+  |   "ChargerCount" = 1
+  |   "ExternalConnected" = Yes
+  |   "ExternalChargeCapable" = Yes
+  |   "AppleRawExternalConnected" = Yes
+  |   "Voltage" = 12457
+  |   "MaxCapacity" = 100
+  |   "CurrentCapacity" = 80
+  |   "BatteryInstalled" = Yes
+  |   "CycleCount" = 78
+  |   "ChargerData" = {"NotChargingReason"=16777216,"SlowChargingReason"=0,"IsCharging"=0}
+  |   "BatteryData" = {"CurrentCapacity"=80,"AppleRawMaxCapacity"=6040,"AppleRawCurrentCapacity"=4751,"AbsoluteCapacity"=0,"AvgTimeToEmpty"=65535,"DesignCapacity"=6249,"NominalChargeCapacity"=6192,"FullChargeCapacity"=6040,"RemainingCapacity"=4751,"MaxCapacity"=100}
+  |   "AvgTimeToFull" = 65535
+  |   "Serial" = "REDACTED"
+  |   "AppleRawBatteryVoltage" = 12457
+  |   "Amperage" = 0
+  |   "IsCharging" = No
+  |   "DesignCycleCount9C" = 1000
+  |   "BatteryPackCount" = 1
+  | }
+  | 
+  +-o AppleSmartBatteryPack  <class AppleSmartBatteryPack, id 0x100000001, registered, matched, active, busy 0 (8 ms), retain 9>
+  | | {
+  | |   "Serial" = "REDACTED"
+  | |   "BatteryData" = {"CurrentCapacity"=80,"DailyMinSoc"=36}
+  | | }

@@ -1,0 +1,18 @@
+# SYNTHETIC: Intel Mac (BCLM/ACEN present, no CH0B/CH0C/CHTE/CHIE). Not a real capture.
+CHTE	  CHTE  [    ]  no data
+CH0B	  CH0B  [    ]  no data
+CH0C	  CH0C  [    ]  no data
+CH0I	  CH0I  [    ]  no data
+CH0J	  CH0J  [    ]  no data
+CH0K	  CH0K  [    ]  no data
+CHIE	  CHIE  [    ]  no data
+CHWA	  CHWA  [    ]  no data
+BCLM	  BCLM  [ui8 ]  100 (bytes 64)
+ACLC	  ACLC  [    ]  no data
+ACEN	  ACEN  [ui8 ]  1 (bytes 01)
+BFCL	  BFCL  [ui8 ]  0 (bytes 00)
+ACFP	  ACFP  [    ]  no data
+CHBI	  CHBI  [ui16]  0 (bytes 00 00)
+B0AC	  B0AC  [si16]  0 (bytes 00 00)
+BRSC	  BRSC  [ui16]  20224 (bytes 4f 00)
+TB0T	  TB0T  [sp78]  30.2 (bytes 1e 33)

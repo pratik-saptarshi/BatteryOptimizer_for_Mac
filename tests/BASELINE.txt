@@ -1,0 +1,67 @@
+# tests/baseline.sh on UNMODIFIED battery.sh (develop @ 00dcc60, v2.0.31), 2026-11-09
+# Host: macOS 27.2. All runs under tests/harness.sh (temp HOME, stubbed sudo/smc/ioreg/pmset/curl).
+# Temp paths and timestamps vary between runs.
+
+== B1 status on macOS 27 fixture (no charge-inhibit key)
+rc=0
+
+11/09/26-16:33:29 - Battery at %, 0V, °C, no charging
+11/09/26-16:33:29 - Battery health %, Cycle =
+11/09/26-16:33:29 - Battery maintain is not running
+11/09/26-16:33:29 - You haven't scheduled calibration yet
+status_csv: 79,attached;,enabled,not discharging,
+smc writes: 0
+
+== B2 maintain_synchronous 74 on macOS 27 fixture (watch for 3 s)
+log lines claiming to stop charging: 5
+smc writes to CH0B/CH0C/CHTE/BCLM: 0
+first output lines:
+11/09/26-16:33:30 - Starting battery maintenance at 74% with sailing to 69% 
+11/09/26-16:33:30 - Not triggering discharge as it is not requested
+11/09/26-16:33:30 - Charging to and maintaining at 74% from 79%
+11/09/26-16:33:30 - Stop charge above 74
+11/09/26-16:33:30 - 🔌🪫 Disabling battery charging
+11/09/26-16:33:30 - Stop charge above 74
+
+== B3 ioreg getters on macOS 27 fixture (status line)
+11/09/26-16:33:33 - Battery at %, 0V, °C, no charging
+11/09/26-16:33:33 - Battery health %, Cycle =
+stderr (first 3): 
+Parse error: bad token
+    <stdin>:1
+
+== B4 discharge 50 on macOS 27 fixture
+rc=0
+11/09/26-16:33:34 - Discharging to 50% from 79%
+11/09/26-16:33:34 - Discharging completed at 79%
+smc writes: CHIE -w 08;ACLC -w 01;ACLC -w 01;CHIE -w 00;ACLC -w 03;
+
+== B5 log trim of a >5 MB log
+before: 120000 lines, 5280000 bytes
+after:  0 lines
+
+== B6 maintain with bad args kills the running loop first (26 fixture)
+maintain abc -> rc=1, dummy loop alive=no
+maintain 0 -> rc=0, dummy loop alive=no
+maintain 80 90 -> rc=0, dummy loop alive=no
+
+== B7 validators
+charge 08 -> rc=0  stderr: value too great for base (error token is "08"
+charge 080 -> rc=0  stderr: value too great for base (error token is "080"
+charge 18446744073709551624 -> rc=0  stderr: 
+charge 101 -> rc=1 not a valid setting stderr: 
+charge 8 -> rc=0  stderr: 
+charge 10 -> rc=0  stderr: 
+charge 100 -> rc=0  stderr: 
+
+== B8 visudo with a failing visudo -c
+rc=0
+
+== B9 SIGHUP during discharge (26 smc fixture, legacy ioreg so the loop actually runs)
+tests/baseline.sh: line 99: 25803 Hangup: 1               env -i HOME="$T/home" USER="$(id -un)" LOGNAME="$(id -un)" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$T/tmp" LANG=en_US.UTF-8 BT_SLEEP_MAX="${BT_SLEEP_MAX:-0.05}" BT_CURL_MODE="${BT_CURL_MODE:-fail}" BT_OSA_ANSWER="${BT_OSA_ANSWER:-No}" BT_VISUDO_RC="${BT_VISUDO_RC:-0}" /bin/bash "$T/bin/battery" "$@" < /dev/null > "$T/out" 2> "$T/err"
+rc=129
+smc writes: CHTE -w 01000000;CHIE -w 08;ACLC -w 01;ACLC -w 01;
+last adapter write: CHIE -w 08
+
+== B10 shellcheck SC2154 (n_second)
+$REPO/battery.sh:2509:35: warning: n_second is referenced but not assigned (did you mean 'n_seconds'?). [SC2154]
