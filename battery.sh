@@ -1471,6 +1471,7 @@ if [[ "$action" == "visudo" ]]; then
 	else
 		echo "❌ Error validating visudo file, this should never happen:" >&2
 		sudo visudo -c -f $visudo_tmpfile
+		exit 1
 	fi
 
 	exit 0

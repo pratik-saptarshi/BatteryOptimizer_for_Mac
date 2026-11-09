@@ -311,6 +311,20 @@ test_r7_changelog_fetch_times_out() {
 	bt_teardown
 }
 
+# ---------------------------------------------------------- R8: visudo exit code
+# Runs only the rewritten copy: sudoers.d is $T/sudoers.d and visudo is a stub.
+test_r8_visudo_validation_failure_exits_nonzero() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	BT_VISUDO_RC=1 bt_run 30 visudo
+	check "visudo action exits non-zero when visudo -c fails" [ "$BT_RC" -ne 0 ]
+	check "invalid sudoers file is not installed" [ ! -e "$T/sudoers.d/battery" ]
+	check "nothing escaped the sandbox" bash -c "! grep -q BLOCKED '$T/calls.log'"
+	BT_VISUDO_RC=0 bt_run 30 visudo
+	check "visudo action still exits 0 when validation passes" [ "$BT_RC" -eq 0 ]
+	check "valid sudoers file is installed (in the test root)" [ -f "$T/sudoers.d/battery" ]
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done

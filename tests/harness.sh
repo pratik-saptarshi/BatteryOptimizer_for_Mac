@@ -80,6 +80,13 @@ kill() {
 	[[ $n -gt 0 ]] || return 1
 	builtin kill "$@"
 }
+mktemp() { # macOS mktemp ignores TMPDIR without a template: keep temp files in the test root
+	if [[ $# -eq 0 || ( $# -eq 1 && "$1" == "-d" ) ]]; then
+		command mktemp "$@" "$BT_ROOT/tmp/tmp.XXXXXX"
+	else
+		command mktemp "$@"
+	fi
+}
 caffeinate() { bt_log "caffeinate $*"; while [[ "$1" == -* ]]; do shift; done; "$@"; }
 sleep() {
 	local d="${1:-0}" max="${BT_SLEEP_MAX:-0.05}"
