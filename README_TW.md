@@ -11,9 +11,15 @@
 * **闔蓋模式 (Clamshell) 支援:** 即使在外接螢幕並闔上筆電時，依然提供完整的電池保護。
 * **區域感知 (Zone Awareness):** 透過 WiFi SSID 與路由器 MAC 位址偵測目前的位置，並據以智慧切換充電閾值。
 * **過熱保護:** 先進的溫度監控，防止在高負載運作時造成的電池衰解。
-* **完整支援 macOS 27:** 唯一完整支援 macOS 27 Golden Gate 的電池管理工具
+* **完整支援 macOS 27:** 唯一完整支援 macOS 27 Golden Gate 的電池管理工具（此項指 BattOpt；本專案的情況請見下方「macOS 27 狀態」）
 
 未來，*BatteryOptimizer_for_Mac* 將僅提供 **最低限度的維護** （如關鍵安全性更新）。所有的新功能開發與優化都將僅在 **BattOpt** 上進行。
+
+## macOS 27 狀態（本專案）
+
+- **本工具無法在 macOS 27 上維持充電上限。** Apple 已移除本工具所依賴的禁止充電 SMC key（CH0B、CH0C、CHTE）。在沒有這些 key 的 Mac 上，`battery maintain` 現在會拒絕啟動並說明原因，`battery status` 會顯示 `NOT LIMITING (no charge-control key)`。舊版本在實際上沒有限制任何東西時，仍會顯示「維持中」。
+- **請改用 macOS 內建的充電上限**（系統設定 ▸ 電池）。啟用時 `battery status` 會顯示，例如 `macOS charge limit active: 80% (manualChargeLimit)`。
+- 上方公告中的「完整支援 macOS 27」指的是 **BattOpt**，不是本專案。
 
 # BatteryOptimizer_for_Mac
 

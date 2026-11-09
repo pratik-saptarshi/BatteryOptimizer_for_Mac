@@ -34,6 +34,7 @@ shutdown_path=$HOME/Library/LaunchAgents/battery_shutdown.plist
 daily_log=$configfolder/daily.log
 calibrate_log=$configfolder/calibrate.log
 ssd_log=$configfolder/ssd.log
+unsupported_notified=$configfolder/unsupported_notified
 github_link="https://raw.githubusercontent.com/js4jiang5/BatteryOptimizer_for_MAC/main"
 battery_binary=$binfolder/battery
 smc_binary="$binfolder/smc"
@@ -51,7 +52,11 @@ touch $logfile
 logsize=$(stat -f%z "$logfile")
 max_logsize_bytes=5000000
 if ((logsize > max_logsize_bytes)); then
-	tail -n 100 $logfile >$logfile
+	# Snapshot to a temp file first (`tail $f >$f` truncates $f before tail reads it), then write
+	# it back IN PLACE. Do not `mv` over $logfile: a running maintain daemon holds `>> $logfile`
+	# open, and replacing the inode would leave it logging into a deleted file.
+	tail -n 100 "$logfile" >"$logfile.tmp" && cat "$logfile.tmp" >"$logfile"
+	rm -f "$logfile.tmp"
 fi
 
 # CLI help message
@@ -195,19 +200,34 @@ thirdsetting=$4
 #}
 
 # check the availability of SMC keys
-[[ $($smc_binary -k BCLM -r) =~ "no data" ]] && has_BCLM=false || has_BCLM=true;
-[[ $($smc_binary -k CH0B -r) =~ "no data" ]] && has_CH0B=false || has_CH0B=true;
-[[ $($smc_binary -k CH0C -r) =~ "no data" ]] && has_CH0C=false || has_CH0C=true;
-[[ $($smc_binary -k CH0I -r) =~ "no data" ]] && has_CH0I=false || has_CH0I=true;
-[[ $($smc_binary -k CH0J -r) =~ "no data" || $($smc_binary -k CH0J -r) =~ "Error" ]] && has_CH0J=false || has_CH0J=true;
-[[ $($smc_binary -k CH0K -r) =~ "no data" ]] && has_CH0K=false || has_CH0K=true;
-[[ $($smc_binary -k ACEN -r) =~ "no data" ]] && has_ACEN=false || has_ACEN=true;
-[[ $($smc_binary -k ACLC -r) =~ "no data" ]] && has_ACLC=false || has_ACLC=true;
-[[ $($smc_binary -k CHWA -r) =~ "no data" ]] && has_CHWA=false || has_CHWA=true;
-[[ $($smc_binary -k BFCL -r) =~ "no data" ]] && has_BFCL=false || has_BFCL=true;
-[[ $($smc_binary -k ACFP -r) =~ "no data" ]] && has_ACFP=false || has_ACFP=true;
-[[ $($smc_binary -k CHTE -r) =~ "no data" ]] && has_CHTE=false || has_CHTE=true;
-[[ $($smc_binary -k CHIE -r) =~ "no data" ]] && has_CHIE=false || has_CHIE=true;
+# Each key is classified tri-state: "present" only if the read returned data ("bytes"),
+# "absent" only if smc answered "no data", "unknown" otherwise (e.g. "Error: SMCReadKey()").
+# has_<KEY> is true only for "present", so an unreadable key is never treated as usable.
+function smc_key_state() {
+	local out
+	out=$($smc_binary -k "$1" -r 2>&1)
+	if [[ $out =~ "bytes" ]]; then
+		echo "present"
+	elif [[ $out =~ "no data" ]]; then
+		echo "absent"
+	else
+		echo "unknown"
+	fi
+}
+function smc_key_usable() { [[ "$1" == "present" ]] && echo true || echo false; }
+state_BCLM=$(smc_key_state BCLM); has_BCLM=$(smc_key_usable "$state_BCLM")
+state_CH0B=$(smc_key_state CH0B); has_CH0B=$(smc_key_usable "$state_CH0B")
+state_CH0C=$(smc_key_state CH0C); has_CH0C=$(smc_key_usable "$state_CH0C")
+state_CH0I=$(smc_key_state CH0I); has_CH0I=$(smc_key_usable "$state_CH0I")
+state_CH0J=$(smc_key_state CH0J); has_CH0J=$(smc_key_usable "$state_CH0J")
+state_CH0K=$(smc_key_state CH0K); has_CH0K=$(smc_key_usable "$state_CH0K")
+state_ACEN=$(smc_key_state ACEN); has_ACEN=$(smc_key_usable "$state_ACEN")
+state_ACLC=$(smc_key_state ACLC); has_ACLC=$(smc_key_usable "$state_ACLC")
+state_CHWA=$(smc_key_state CHWA); has_CHWA=$(smc_key_usable "$state_CHWA")
+state_BFCL=$(smc_key_state BFCL); has_BFCL=$(smc_key_usable "$state_BFCL")
+state_ACFP=$(smc_key_state ACFP); has_ACFP=$(smc_key_usable "$state_ACFP")
+state_CHTE=$(smc_key_state CHTE); has_CHTE=$(smc_key_usable "$state_CHTE")
+state_CHIE=$(smc_key_state CHIE); has_CHIE=$(smc_key_usable "$state_CHIE")
 
 ## ###############
 ## Helpers
@@ -297,22 +317,22 @@ function ha_webhook() {
 	WEBHOOKID=$(read_config webhookid)
 	if [[ $WEBHOOKID ]]; then
 		if [ $4 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\" , \"voltage\": \"$3\" , \"health\": \"$4\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		elif [ $3 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\" , \"voltage\": \"$3\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		elif [ $2 ]; then
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" , \"battery\": \"$2\"}" \
 			$DST/api/webhook/$WEBHOOKID 
 		else
-			curl -sS -X POST \
+			curl -q -sS -X POST \
 			-H "Content-Type: application/json"\
 			-d "{\"stage\": \"$1\" }" \
 			$DST/api/webhook/$WEBHOOKID 
@@ -336,60 +356,38 @@ function logd() {
 	echo -e "$(date +%Y/%m/%d) $1"
 }
 
+# Validators accept only plain decimal numbers: no sign, no leading zeros (so "08" is
+# never read as octal), at most 3 digits (no overflow), compared in base 10.
+function valid_number_in_range() { # value min max
+	[[ "$1" =~ ^(0|[1-9][0-9]{0,2})$ ]] && (( 10#$1 >= $2 && 10#$1 <= $3 ))
+}
+
 function valid_percentage() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 100 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 100
 }
 
 function valid_month_period() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 3 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 3
 }
 
 function valid_day() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 28 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 28
 }
 
 function valid_hour() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 23 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 23
 }
 
 function valid_minute() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 59 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 59
 }
 
 function valid_weekday() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 0 ]] || [[ "$1" -gt 6 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 0 6
 }
 
 function valid_week_period() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" -lt 1 ]] || [[ "$1" -gt 12 ]]; then
-		return 1
-	else
-		return 0
-	fi
+	valid_number_in_range "$1" 1 12
 }
 
 function format00() {
@@ -481,6 +479,7 @@ function check_next_calibration_date() {
 		if [[ $day_loc ]]; then
 			for i_day in {1..4}; do
 				value=$(echo $schedule | awk '{print $"'"$((day_loc+i_day))"'"}')
+				[[ $value =~ ^0[1-9]$ ]] && value=${value#0} # schedules saved by older versions may hold "08"
 				if valid_day $value; then
 					days[$n_days]=$(format00 $value)
 					n_days=$(($n_days+1))
@@ -784,19 +783,98 @@ function get_smc_charging_status() {
 				else
 					echo "disabled"
 				fi
+			elif $has_CH0B; then
+				hex_status=$(read_smc_hex CH0B)
+				if [[ "$hex_status" == "00" ]]; then
+					echo "enabled"
+				else
+					echo "disabled"
+				fi
 			else
-				echo "enabled"
+				echo "unknown" # no charge-control key: we cannot know, and must not claim "enabled"
 			fi
 		fi
 	else
-		bclm_hex_status=$(read_smc_hex BCLM)
-		acen_hex_status=$(read_smc_hex ACEN)
-		if [[ "$bclm_hex_status" == "64" ]] && [[ "$acen_hex_status" == "01" ]]; then
-			echo "enabled"
+		if $has_BCLM; then
+			bclm_hex_status=$(read_smc_hex BCLM)
+			acen_hex_status=$(read_smc_hex ACEN)
+			if [[ "$bclm_hex_status" == "64" ]] && [[ "$acen_hex_status" == "01" ]]; then
+				echo "enabled"
+			else
+				echo "disabled"
+			fi
 		else
-			echo "disabled"
+			echo "unknown"
 		fi
 	fi
+}
+
+# Which SMC key can stop charging on this Mac: ch0b/ch0c, chte, bclm, none or unknown
+function get_charge_actuator() {
+	if $has_CH0B || $has_CH0C; then
+		echo "ch0b/ch0c"
+	elif $has_CHTE; then
+		echo "chte"
+	elif $has_BCLM; then
+		echo "bclm"
+	elif [[ "$state_CH0B $state_CH0C $state_CHTE $state_BCLM" =~ "unknown" ]]; then
+		echo "unknown"
+	else
+		echo "none"
+	fi
+}
+
+function reprobe_charge_keys() {
+	state_BCLM=$(smc_key_state BCLM); has_BCLM=$(smc_key_usable "$state_BCLM")
+	state_CH0B=$(smc_key_state CH0B); has_CH0B=$(smc_key_usable "$state_CH0B")
+	state_CH0C=$(smc_key_state CH0C); has_CH0C=$(smc_key_usable "$state_CH0C")
+	state_CHTE=$(smc_key_state CHTE); has_CHTE=$(smc_key_usable "$state_CHTE")
+}
+
+# Best-effort, read-only: the charge limit macOS itself enforces, e.g. "80% (manualChargeLimit)".
+# Prints nothing if `pmset -g battlimit` is unavailable or its format is not recognised.
+function get_native_charge_limit() {
+	local out soc reason
+	out=$(pmset -g battlimit 2>/dev/null)
+	soc=$(echo "$out" | sed -n -E 's/^[[:space:]]*chargeSocLimitSoc[[:space:]]*=[[:space:]]*([0-9]+);.*/\1/p' | head -n 1)
+	reason=$(echo "$out" | sed -n -E 's/^[[:space:]]*chargeSocLimitReason[[:space:]]*=[[:space:]]*([A-Za-z0-9_]+);.*/\1/p' | head -n 1)
+	if [[ $soc =~ ^[0-9]+$ ]] && [[ -n $reason ]]; then
+		echo "${soc}% ($reason)"
+	fi
+}
+
+# Refuse to run a charge limiter that has nothing to actuate (e.g. macOS 27 removed
+# CH0B/CH0C/CHTE). Returns 1 after logging (and notifying once) if unsupported.
+function require_charge_actuator() {
+	local native_limit
+	charge_actuator=$(get_charge_actuator)
+	if [[ "$charge_actuator" == "unknown" ]]; then
+		log "SMC charge-control keys could not be read, retrying in 2 seconds"
+		sleep 2
+		reprobe_charge_keys
+		charge_actuator=$(get_charge_actuator)
+		if [[ "$charge_actuator" == "unknown" ]]; then
+			log "SMC charge-control keys still unreadable, treating this Mac as unsupported"
+			charge_actuator="none"
+		fi
+	fi
+	if [[ "$charge_actuator" == "none" ]]; then
+		log "❌ charge limiting unsupported on this Mac/macOS: no CH0B/CH0C/CHTE/BCLM key"
+		native_limit=$(get_native_charge_limit)
+		if [[ -n $native_limit ]]; then
+			log "macOS charge limit active: $native_limit"
+		fi
+		if ! test -f "$unsupported_notified"; then
+			touch "$unsupported_notified"
+			if $is_TW; then
+				osascript -e 'display notification "此 Mac/macOS 不支援充電上限控制 (not supported: 沒有 CH0B/CH0C/CHTE/BCLM key)，請改用 系統設定 > 電池 > 充電上限" with title "BatteryOptimizer" sound name "Blow"'
+			else
+				osascript -e 'display notification "Charge limiting is not supported on this Mac/macOS (no CH0B/CH0C/CHTE/BCLM key). Use System Settings > Battery > Charge Limit instead." with title "BatteryOptimizer" sound name "Blow"'
+			fi
+		fi
+		return 1
+	fi
+	return 0
 }
 
 function get_smc_discharging_status() {
@@ -863,11 +941,41 @@ function get_battery_percentage() {
 	echo $battery_percentage
 }
 
+# Read one integer property of AppleSmartBattery. Prints nothing unless the value is a
+# non-negative integer. Order: plist BatteryData.<key> (macOS 27+ layout), plist top-level
+# <key>, then the legacy text grep (older ioreg layouts).
+function get_ioreg_battery_value() {
+	local key=$1 plist val=""
+	plist=$(ioreg -arn AppleSmartBattery 2>/dev/null)
+	if [[ -n $plist ]]; then
+		val=$(printf '%s' "$plist" | plutil -extract "0.BatteryData.$key" raw -o - - 2>/dev/null)
+		if ! [[ $val =~ ^[0-9]+$ ]]; then
+			val=$(printf '%s' "$plist" | plutil -extract "0.$key" raw -o - - 2>/dev/null)
+		fi
+	fi
+	if ! [[ $val =~ ^[0-9]+$ ]]; then
+		val=$(ioreg -l -n AppleSmartBattery -r | grep "\"$key\" =" | head -n 1 | awk '{ print $NF }')
+	fi
+	if [[ $val =~ ^[0-9]+$ ]]; then
+		echo "$val"
+	fi
+}
+
 function get_accurate_battery_percentage() {
-	MaxCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawMaxCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	CurrentCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawCurrentCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
+	MaxCapacity=$(get_ioreg_battery_value AppleRawMaxCapacity)
+	CurrentCapacity=$(get_ioreg_battery_value AppleRawCurrentCapacity)
+	if [[ -z $MaxCapacity || -z $CurrentCapacity || $MaxCapacity -eq 0 ]]; then
+		return 1 # unreadable: print nothing, callers must treat this as an error
+	fi
 	accurate_battery_percentage=$(echo "scale=1; $CurrentCapacity*100/$MaxCapacity" | bc)
-	echo $accurate_battery_percentage
+	# bc omits the leading zero below 1% (prints ".8"); normalise so every consumer gets "0.8"
+	[[ $accurate_battery_percentage == .* ]] && accurate_battery_percentage="0$accurate_battery_percentage"
+	echo "$accurate_battery_percentage"
+}
+
+# true if $1 looks like a percentage produced by get_accurate_battery_percentage
+function is_valid_level() {
+	[[ $1 =~ ^[0-9]+(\.[0-9]+)?$ ]]
 }
 
 function get_remaining_time() {
@@ -914,34 +1022,45 @@ function get_maintain_percentage() {
 }
 
 function get_voltage() {
-	voltage=$(ioreg -l -n AppleSmartBattery -r | grep "\"Voltage\" =" | awk '{ print $3/1000 }' | tr ',' '.')
+	voltage=$(get_ioreg_battery_value Voltage)
+	if [[ -n $voltage ]]; then
+		voltage=$(awk -v mv="$voltage" 'BEGIN { print mv/1000 }' | tr ',' '.')
+	fi
 	echo "$voltage"
 }
 
 function get_battery_health() {
-	MaxCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawMaxCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	DesignCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"DesignCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	health=$(echo "scale=1; $MaxCapacity*100/$DesignCapacity" | bc)
+	MaxCapacity=$(get_ioreg_battery_value AppleRawMaxCapacity)
+	DesignCapacity=$(get_ioreg_battery_value DesignCapacity)
+	health=""
+	if [[ -n $MaxCapacity && -n $DesignCapacity && $DesignCapacity -ne 0 ]]; then
+		health=$(echo "scale=1; $MaxCapacity*100/$DesignCapacity" | bc)
+	fi
 	echo $health
 }
 
 function get_battery_temperature() {
-	temperature=$(ioreg -l -n AppleSmartBattery -r | grep "\"VirtualTemperature\" =" | awk '{ print $3 }' | tr ',' '.')
-	
+	temperature=$(get_ioreg_battery_value VirtualTemperature)
+
 	if [ $temperature ]; then
 		temperature=$(echo "scale=1; ($temperature+5)/100" | bc)
 	else
 		#temperature=$(ioreg -l -n AppleSmartBattery -r | grep "\"Temperature\" =" | awk '{ print $3 }' | tr ',' '.')
 		#temperature=$(echo "scale=1; ($temperature+5)/100" | bc)
-		temperature=$(echo $($smc_binary -k TB0T -r) | awk '{print $3}') # this value is closer to coconutBattery and AlDente
-		temperature=$(echo "scale=1; ($temperature*1000+50)/1000" | bc)
+		# TB0T reads like "  TB0T  [flt ]  30 (bytes 60 66 ee 41)": take the number after the type bracket
+		temperature=$($smc_binary -k TB0T -r | sed -n -E 's/.*\][[:space:]]+(-?[0-9]+(\.[0-9]+)?)[[:space:]].*/\1/p' | head -n 1) # this value is closer to coconutBattery and AlDente
+		if [[ $temperature =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+			temperature=$(echo "scale=1; ($temperature*1000+50)/1000" | bc)
+		else
+			temperature=""
+		fi
 	fi
 
 	echo $temperature
 }
 
 function get_cycle() {
-	cycle=$(ioreg -l -n AppleSmartBattery -r | grep "\"CycleCount\" =" | awk '{ print $3 }' | tr ',' '.')
+	cycle=$(get_ioreg_battery_value CycleCount)
 	echo "$cycle"
 }
 
@@ -983,9 +1102,9 @@ function get_parameter() { # get parameter value from configuration file. the fo
 
 function get_changelog() { # get the latest changelog
 	if [[ -z $1 ]]; then
-		changelog=$(curl -sSL $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
 	else
-		changelog=$(curl -sSL $github_link/$1 | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/$1 | sed s:\":'\\"':g 2>&1)
 	fi
 
 	n_lines=0
@@ -1018,9 +1137,9 @@ function get_changelog() { # get the latest changelog
 
 function get_version() { # get the latest version number
 	if [[ -z $1 ]]; then
-		changelog=$(curl -sSL $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/CHANGELOG | sed s:\":'\\"':g 2>&1)
 	else
-		changelog=$(curl -sSL $github_link/$1 | sed s:\":'\\"':g 2>&1)
+		changelog=$(curl -q -sSL --connect-timeout 5 --max-time 20 $github_link/$1 | sed s:\":'\\"':g 2>&1)
 	fi
 
 	while read -r "line"; do
@@ -1357,6 +1476,7 @@ if [[ "$action" == "visudo" ]]; then
 	else
 		echo "❌ Error validating visudo file, this should never happen:" >&2
 		sudo visudo -c -f $visudo_tmpfile
+		exit 1
 	fi
 
 	exit 0
@@ -1364,12 +1484,12 @@ fi
 
 # Reinstall helper
 if [[ "$action" == "reinstall" ]]; then
-	echo "This will run curl -sS $github_link/setup.sh   | bash"
+	echo "This will run curl -q -sS $github_link/setup.sh   | bash"
 	if [[ ! "$setting" == "silent" ]]; then
 		echo "Press any key to continue"
 		read
 	fi
-	curl -sS $github_link/setup.sh | bash
+	curl -q -sS $github_link/setup.sh | bash
 	exit 0
 fi
 
@@ -1386,7 +1506,7 @@ if [[ "$action" == "update_silent" ]]; then
 	else
 		github_link="https://raw.githubusercontent.com/js4jiang5/BatteryOptimizer_for_MAC/main"
 	fi
-	battery_new=$(curl -sSL "$github_link/battery.sh")
+	battery_new=$(curl -q -sSL "$github_link/battery.sh")
 	battery_new_version=$(get_parameter "$battery_new" "BATTERY_CLI_VERSION")
 	
 	if [[ -z $battery_new_version ]]; then
@@ -1425,7 +1545,7 @@ if [[ "$action" == "update_silent" ]]; then
 		
 		if [[ $answer == "Yes" ]]; then
 			tmp_update=$(mktemp)
-			if curl -sS "$github_link/update.sh" -o "$tmp_update"; then
+			if curl -q -fsS "$github_link/update.sh" -o "$tmp_update"; then
 				bash "$tmp_update"
 				safe_rm "$tmp_update"
 			else
@@ -1492,7 +1612,7 @@ fi
 # Charging on/off controller
 if [[ "$action" == "charge" ]]; then
 
-	trap charge_interrupted SIGINT SIGTERM
+	trap charge_interrupted SIGINT SIGTERM SIGHUP
 	trap charge_terminated SIGUSR1
 
 	# kill running charge process
@@ -1536,7 +1656,18 @@ if [[ "$action" == "charge" ]]; then
 	cnt_error=0
 	charge_error=false
 	#while [[ "$battery_percentage" -lt "$setting" ]]; do
-	while (( $(echo "$(get_accurate_battery_percentage) < $setting"|bc -l) )); do
+	while true; do
+		accurate_level=$(get_accurate_battery_percentage)
+		if ! is_valid_level "$accurate_level"; then
+			# Fail safe: never report "completed" on an unreadable level. Leave charging enabled.
+			log "Error: cannot read battery level from ioreg, stopping charge"
+			enable_charging
+			if [[ "$(calibrate_is_running)" == "0" ]] && [[ "$original_maintain_status" == "active" ]]; then
+				$battery_binary maintain recover
+			fi
+			exit 1
+		fi
+		(( $(echo "$accurate_level < $setting" | bc -l) )) || break
 
 		if [[ $battery_percentage -ne $battery_pre ]]; then # print only when there is change
 			log "Battery at $battery_percentage% (target $setting%)"
@@ -1601,7 +1732,7 @@ fi
 # Discharging on/off controller
 if [[ "$action" == "discharge" ]]; then
 
-	trap discharge_interrupted SIGINT SIGTERM
+	trap discharge_interrupted SIGINT SIGTERM SIGHUP
 	trap discharge_terminated SIGUSR1
 
 	# kill running discharge process
@@ -1650,7 +1781,19 @@ if [[ "$action" == "discharge" ]]; then
 	cnt_error=0
 	discharge_error=false
 	#while [[ "$battery_percentage" -gt "$setting" ]]; do
-	while (( $(echo "$(get_accurate_battery_percentage) > $setting"|bc -l) )); do
+	while true; do
+		accurate_level=$(get_accurate_battery_percentage)
+		if ! is_valid_level "$accurate_level"; then
+			# Fail safe: never report "completed" on an unreadable level.
+			# Restore the adapter and charging (enable_charging also disables discharging).
+			log "Error: cannot read battery level from ioreg, stopping discharge"
+			enable_charging
+			if [[ "$(calibrate_is_running)" == "0" ]] && [[ "$original_maintain_status" == "active" ]]; then
+				$battery_binary maintain recover
+			fi
+			exit 1
+		fi
+		(( $(echo "$accurate_level > $setting" | bc -l) )) || break
 
 		if [[ $battery_percentage -ne $battery_pre ]]; then # print only when there is change
 			log "Battery at $battery_percentage% (target $setting%)"
@@ -1703,6 +1846,9 @@ fi
 
 # Maintain at level
 if [[ "$action" == "maintain_synchronous" ]]; then
+	# Never run a limiter loop that cannot actuate anything; exit non-zero instead
+	require_charge_actuator || exit 1
+
 	if [[ $(get_cpu_type) == "apple" ]]; then # reset to default when reboot
 		if $has_CHWA; then sudo $smc_binary -k CHWA -w 00; fi
 	fi
@@ -1879,8 +2025,10 @@ if [[ "$action" == "maintain_synchronous" ]]; then
 
 		# check if there is update version
 		if [[ $(date +%s) -gt $check_update_timeout ]]; then
-			updated="$(curl -sS $github_link/battery.sh | grep "$informed_version")"
-			new_version="$(curl -sS $github_link/battery.sh | grep "BATTERY_CLI_VERSION=")"
+			# one bounded fetch: a stalled network must not freeze the charge-control loop
+			latest_battery_sh="$(curl -q -sS --connect-timeout 5 --max-time 20 $github_link/battery.sh)"
+			updated="$(echo "$latest_battery_sh" | grep "$informed_version")"
+			new_version="$(echo "$latest_battery_sh" | grep "BATTERY_CLI_VERSION=")"
 			new_version="$(echo $new_version | awk '{print $1}')"
 			new_version=$(echo ${new_version/"BATTERY_CLI_VERSION="} | tr -d \")
 			
@@ -2043,6 +2191,29 @@ if [[ "$action" == "maintain" ]]; then
 		fi
 	fi
 
+	# Validate every argument before anything is killed, written or started
+	if ! { [[ "$setting" == "stop" ]] || [[ "$setting" == "recover" ]]; }; then
+		if ! valid_percentage "$setting" || (( 10#$setting < 10 )); then
+			log "Error: $setting is not a valid setting for battery maintain. Please use a number between 10 and 100, or an action keyword like 'stop' or 'recover'."
+			exit 1
+		fi
+		if [[ -n "$subsetting" ]] && [[ "$subsetting" != "--force-discharge" ]]; then
+			if ! valid_percentage "$subsetting" || (( 10#$subsetting < 5 || 10#$subsetting > 99 )); then
+				log "Error: sailing target $subsetting is not valid. Please use a number between 5 and 99"
+				exit 1
+			fi
+			if (( 10#$subsetting >= 10#$setting )); then
+				log "Error: sailing target $subsetting larger than or equal to maintain level $setting is not allowed"
+				exit 1
+			fi
+		fi
+	fi
+
+	# Refuse before touching any running process, config or daemon if nothing can be actuated
+	if [[ "$setting" != "stop" ]]; then
+		require_charge_actuator || exit 1
+	fi
+
 	# Kill old process silently
 	if test -f "$pidfile"; then
 		log "Killing old maintain process at $(cat $pidfile)" >> $logfile
@@ -2067,16 +2238,8 @@ if [[ "$action" == "maintain" ]]; then
 		safe_rm $calibrate_pidfile 2>/dev/null
 		log "🚨 Calibration process have been stopped"
 	fi
-	
-	# Check if setting is value between 0 and 100
-	if ! valid_percentage "$setting"; then
-		# log "Called with $setting $action"
-		# If non 0-100 setting is not a special keyword, exit with an error.
-		if ! { [[ "$setting" == "stop" ]] || [[ "$setting" == "recover" ]]; }; then
-			log "Error: $setting is not a valid setting for battery maintain. Please use a number between 0 and 100, or an action keyword like 'stop' or 'recover'."
-			exit 1
-		fi
-	fi
+
+	# (setting/sailing target were validated above, before anything was killed)
 
 	# Start maintenance script
 	nohup $battery_binary maintain_synchronous $setting $subsetting $thirdsetting >> $logfile &
@@ -2128,7 +2291,7 @@ fi
 # Battery calibration
 if [[ "$action" == "calibrate" ]]; then
 
-	trap calibrate_interrupted SIGINT SIGTERM
+	trap calibrate_interrupted SIGINT SIGTERM SIGHUP
 
 	if ! [[ -t 0 ]] && [[ "$setting" != "force" ]]; then # if the command is not entered from stdin (terminal) by a person, meaning it is a scheduled calibration
 		# check schedule to see if this week should calibrate
@@ -2506,7 +2669,7 @@ if [[ "$action" == "calibrate" ]]; then
 	fi
 	
 	print_calibrate_log $calibrate_time Yes $health_before $(get_battery_health)%
-	echo "$n_days$n_hours $n_minutes $n_second" >> $calibrate_log
+	echo "$n_days$n_hours $n_minutes $n_seconds" >> $calibrate_log
 
 	safe_rm $calibrate_pidfile 2>/dev/null
 	$battery_binary maintain recover # Recover old maintain status
@@ -2540,7 +2703,18 @@ if [[ "$action" == "status" ]]; then
 		log "Battery health $(get_battery_health)%, Cycle $(get_cycle)"
 	fi
 
-	if [[ "$(maintain_is_running)" == "1" ]]; then
+	native_limit=$(get_native_charge_limit)
+	if [[ -n $native_limit ]]; then
+		log "macOS charge limit active: $native_limit"
+	fi
+
+	if [[ "$(get_charge_actuator)" == "none" ]]; then
+		if $is_TW; then
+			log "未限制充電 NOT LIMITING (no charge-control key)"
+		else
+			log "NOT LIMITING (no charge-control key)"
+		fi
+	elif [[ "$(maintain_is_running)" == "1" ]]; then
 		maintain_percentage=$(read_config maintain_percentage)
 		maintain_status=$(echo $(cat "$pidfile" 2>/dev/null) | awk '{print $2}')
 		if [[ "$maintain_status" == "active" ]]; then
@@ -2774,7 +2948,7 @@ if [[ "$action" == "schedule" ]]; then
 				days[$n_days]=$value
 				n_days=$(($n_days+1))
 			else
-				if [[ $value -eq 29 ]] || [[ $value -eq 30 ]] || [[ $value -eq 31 ]]; then
+				if [[ $value =~ ^[0-9]+$ ]]; then # a number, but not a valid day (e.g. 0, 08, 29)
 					log "Error: day must be in [1..28]"
 					exit 1
 				fi

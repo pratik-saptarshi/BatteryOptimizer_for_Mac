@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SYNTHETIC pre-27 layout: AppleRaw*, DesignCapacity, VirtualTemperature at top level. -->
+<plist version="1.0">
+<array>
+	<dict>
+		<key>AppleRawCurrentCapacity</key>
+		<integer>4751</integer>
+		<key>AppleRawMaxCapacity</key>
+		<integer>6040</integer>
+		<key>CycleCount</key>
+		<integer>78</integer>
+		<key>DesignCapacity</key>
+		<integer>6249</integer>
+		<key>Serial</key>
+		<string>REDACTED</string>
+		<key>VirtualTemperature</key>
+		<integer>3029</integer>
+		<key>Voltage</key>
+		<integer>12457</integer>
+	</dict>
+</array>
+</plist>

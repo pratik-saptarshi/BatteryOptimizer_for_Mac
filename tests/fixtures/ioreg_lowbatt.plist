@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Reduced from `ioreg -arn AppleSmartBattery` captured read-only on M3 Max / macOS 27.2, 2026-11-09.
+     Only keys battery.sh reads (plus layout context) are kept; serial numbers and adapter details removed.
+     Values are the real ones. Note: on 27.x AppleRaw*/DesignCapacity live only under BatteryData,
+     and VirtualTemperature/Temperature are absent. -->
+<plist version="1.0">
+<array>
+	<dict>
+		<key>AppleRawBatteryVoltage</key>
+		<integer>12457</integer>
+		<key>BatteryData</key>
+		<dict>
+			<key>AbsoluteCapacity</key>
+			<integer>0</integer>
+			<key>AppleRawCurrentCapacity</key>
+			<integer>54</integer>
+			<key>AppleRawMaxCapacity</key>
+			<integer>6040</integer>
+			<key>AvgTimeToEmpty</key>
+			<integer>65535</integer>
+			<key>BatteryPower</key>
+			<integer>0</integer>
+			<key>CurrentCapacity</key>
+			<integer>80</integer>
+			<key>DesignCapacity</key>
+			<integer>6249</integer>
+			<key>FullChargeCapacity</key>
+			<integer>6040</integer>
+			<key>FullyCharged</key>
+			<integer>0</integer>
+			<key>MaxCapacity</key>
+			<integer>100</integer>
+			<key>NominalChargeCapacity</key>
+			<integer>6192</integer>
+			<key>RemainingCapacity</key>
+			<integer>4751</integer>
+			<key>TrueRemainingCapacity</key>
+			<integer>0</integer>
+		</dict>
+		<key>ChargerData</key>
+		<dict>
+			<key>IsCharging</key>
+			<integer>0</integer>
+			<key>NotChargingReason</key>
+			<integer>16777216</integer>
+		</dict>
+		<key>CurrentCapacity</key>
+		<integer>80</integer>
+		<key>CycleCount</key>
+		<integer>78</integer>
+		<key>DesignCycleCount9C</key>
+		<integer>1000</integer>
+		<key>ExternalConnected</key>
+		<true/>
+		<key>IsCharging</key>
+		<false/>
+		<key>MaxCapacity</key>
+		<integer>100</integer>
+		<key>Serial</key>
+		<string>REDACTED</string>
+		<key>Voltage</key>
+		<integer>12457</integer>
+	</dict>
+</array>
+</plist>
