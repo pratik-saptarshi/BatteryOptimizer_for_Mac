@@ -958,11 +958,39 @@ function get_battery_percentage() {
 	echo $battery_percentage
 }
 
+# Read one integer property of AppleSmartBattery. Prints nothing unless the value is a
+# non-negative integer. Order: plist BatteryData.<key> (macOS 27+ layout), plist top-level
+# <key>, then the legacy text grep (older ioreg layouts).
+function get_ioreg_battery_value() {
+	local key=$1 plist val=""
+	plist=$(ioreg -arn AppleSmartBattery 2>/dev/null)
+	if [[ -n $plist ]]; then
+		val=$(printf '%s' "$plist" | plutil -extract "0.BatteryData.$key" raw -o - - 2>/dev/null)
+		if ! [[ $val =~ ^[0-9]+$ ]]; then
+			val=$(printf '%s' "$plist" | plutil -extract "0.$key" raw -o - - 2>/dev/null)
+		fi
+	fi
+	if ! [[ $val =~ ^[0-9]+$ ]]; then
+		val=$(ioreg -l -n AppleSmartBattery -r | grep "\"$key\" =" | head -n 1 | awk '{ print $NF }')
+	fi
+	if [[ $val =~ ^[0-9]+$ ]]; then
+		echo "$val"
+	fi
+}
+
 function get_accurate_battery_percentage() {
-	MaxCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawMaxCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	CurrentCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawCurrentCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
+	MaxCapacity=$(get_ioreg_battery_value AppleRawMaxCapacity)
+	CurrentCapacity=$(get_ioreg_battery_value AppleRawCurrentCapacity)
+	if [[ -z $MaxCapacity || -z $CurrentCapacity || $MaxCapacity -eq 0 ]]; then
+		return 1 # unreadable: print nothing, callers must treat this as an error
+	fi
 	accurate_battery_percentage=$(echo "scale=1; $CurrentCapacity*100/$MaxCapacity" | bc)
 	echo $accurate_battery_percentage
+}
+
+# true if $1 looks like a percentage produced by get_accurate_battery_percentage
+function is_valid_level() {
+	[[ $1 =~ ^[0-9]+(\.[0-9]+)?$ ]]
 }
 
 function get_remaining_time() {
@@ -1009,34 +1037,45 @@ function get_maintain_percentage() {
 }
 
 function get_voltage() {
-	voltage=$(ioreg -l -n AppleSmartBattery -r | grep "\"Voltage\" =" | awk '{ print $3/1000 }' | tr ',' '.')
+	voltage=$(get_ioreg_battery_value Voltage)
+	if [[ -n $voltage ]]; then
+		voltage=$(awk -v mv="$voltage" 'BEGIN { print mv/1000 }' | tr ',' '.')
+	fi
 	echo "$voltage"
 }
 
 function get_battery_health() {
-	MaxCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"AppleRawMaxCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	DesignCapacity=$(ioreg -l -n AppleSmartBattery -r | grep "\"DesignCapacity\" =" | awk '{ print $3 }' | tr ',' '.')
-	health=$(echo "scale=1; $MaxCapacity*100/$DesignCapacity" | bc)
+	MaxCapacity=$(get_ioreg_battery_value AppleRawMaxCapacity)
+	DesignCapacity=$(get_ioreg_battery_value DesignCapacity)
+	health=""
+	if [[ -n $MaxCapacity && -n $DesignCapacity && $DesignCapacity -ne 0 ]]; then
+		health=$(echo "scale=1; $MaxCapacity*100/$DesignCapacity" | bc)
+	fi
 	echo $health
 }
 
 function get_battery_temperature() {
-	temperature=$(ioreg -l -n AppleSmartBattery -r | grep "\"VirtualTemperature\" =" | awk '{ print $3 }' | tr ',' '.')
-	
+	temperature=$(get_ioreg_battery_value VirtualTemperature)
+
 	if [ $temperature ]; then
 		temperature=$(echo "scale=1; ($temperature+5)/100" | bc)
 	else
 		#temperature=$(ioreg -l -n AppleSmartBattery -r | grep "\"Temperature\" =" | awk '{ print $3 }' | tr ',' '.')
 		#temperature=$(echo "scale=1; ($temperature+5)/100" | bc)
-		temperature=$(echo $($smc_binary -k TB0T -r) | awk '{print $3}') # this value is closer to coconutBattery and AlDente
-		temperature=$(echo "scale=1; ($temperature*1000+50)/1000" | bc)
+		# TB0T reads like "  TB0T  [flt ]  30 (bytes 60 66 ee 41)": take the number after the type bracket
+		temperature=$($smc_binary -k TB0T -r | sed -n -E 's/.*\][[:space:]]+(-?[0-9]+(\.[0-9]+)?)[[:space:]].*/\1/p' | head -n 1) # this value is closer to coconutBattery and AlDente
+		if [[ $temperature =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+			temperature=$(echo "scale=1; ($temperature*1000+50)/1000" | bc)
+		else
+			temperature=""
+		fi
 	fi
 
 	echo $temperature
 }
 
 function get_cycle() {
-	cycle=$(ioreg -l -n AppleSmartBattery -r | grep "\"CycleCount\" =" | awk '{ print $3 }' | tr ',' '.')
+	cycle=$(get_ioreg_battery_value CycleCount)
 	echo "$cycle"
 }
 
@@ -1631,7 +1670,18 @@ if [[ "$action" == "charge" ]]; then
 	cnt_error=0
 	charge_error=false
 	#while [[ "$battery_percentage" -lt "$setting" ]]; do
-	while (( $(echo "$(get_accurate_battery_percentage) < $setting"|bc -l) )); do
+	while true; do
+		accurate_level=$(get_accurate_battery_percentage)
+		if ! is_valid_level "$accurate_level"; then
+			# Fail safe: never report "completed" on an unreadable level. Leave charging enabled.
+			log "Error: cannot read battery level from ioreg, stopping charge"
+			enable_charging
+			if [[ "$(calibrate_is_running)" == "0" ]] && [[ "$original_maintain_status" == "active" ]]; then
+				$battery_binary maintain recover
+			fi
+			exit 1
+		fi
+		(( $(echo "$accurate_level < $setting" | bc -l) )) || break
 
 		if [[ $battery_percentage -ne $battery_pre ]]; then # print only when there is change
 			log "Battery at $battery_percentage% (target $setting%)"
@@ -1745,7 +1795,19 @@ if [[ "$action" == "discharge" ]]; then
 	cnt_error=0
 	discharge_error=false
 	#while [[ "$battery_percentage" -gt "$setting" ]]; do
-	while (( $(echo "$(get_accurate_battery_percentage) > $setting"|bc -l) )); do
+	while true; do
+		accurate_level=$(get_accurate_battery_percentage)
+		if ! is_valid_level "$accurate_level"; then
+			# Fail safe: never report "completed" on an unreadable level.
+			# Restore the adapter and charging (enable_charging also disables discharging).
+			log "Error: cannot read battery level from ioreg, stopping discharge"
+			enable_charging
+			if [[ "$(calibrate_is_running)" == "0" ]] && [[ "$original_maintain_status" == "active" ]]; then
+				$battery_binary maintain recover
+			fi
+			exit 1
+		fi
+		(( $(echo "$accurate_level > $setting" | bc -l) )) || break
 
 		if [[ $battery_percentage -ne $battery_pre ]]; then # print only when there is change
 			log "Battery at $battery_percentage% (target $setting%)"

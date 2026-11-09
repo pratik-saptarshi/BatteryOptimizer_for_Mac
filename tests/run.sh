@@ -134,6 +134,51 @@ test_r1_unreadable_key_is_not_present() {
 	bt_teardown
 }
 
+# ------------------------------------------------------------ R2: ioreg parsing
+# Expected values: 4751*100/6040 = 78.6, 12457 mV, 6040*100/6249 = 96.6, cycle 78.
+# Temperature: 27 has no VirtualTemperature, so it comes from TB0T (30 -> 30.0);
+# the legacy fixture has VirtualTemperature 3029 -> (3029+5)/100 = 30.3.
+test_r2_metrics_macos27_plist() {
+	bt_setup smc_macos27.txt ioreg_macos27
+	bt_run 30 status
+	check "27: status battery line" grep -q 'Battery at 78.6%, 12.457V, 30.0°C' <<<"$BT_OUT"
+	check "27: status health line" grep -q 'Battery health 96.6%, Cycle 78' <<<"$BT_OUT"
+	check "27: no bc/parse errors on stderr" bash -c "! grep -q -i 'error' <<<\"\$1\"" _ "$BT_ERR"
+	bt_teardown
+}
+
+test_r2_metrics_legacy_layout() {
+	bt_setup smc_macos27.txt ioreg_legacy
+	bt_run 30 status
+	check "legacy plist: status battery line" grep -q 'Battery at 78.6%, 12.457V, 30.3°C' <<<"$BT_OUT"
+	check "legacy plist: status health line" grep -q 'Battery health 96.6%, Cycle 78' <<<"$BT_OUT"
+	rm -f "$T/fx/ioreg.plist" # force the text/grep fallback
+	bt_run 30 status
+	check "legacy text: status battery line" grep -q 'Battery at 78.6%, 12.457V, 30.3°C' <<<"$BT_OUT"
+	check "legacy text: status health line" grep -q 'Battery health 96.6%, Cycle 78' <<<"$BT_OUT"
+	check "legacy text: no errors on stderr" bash -c "! grep -q -i 'error' <<<\"\$1\"" _ "$BT_ERR"
+	bt_teardown
+}
+
+test_r2_empty_metric_fails_safe() {
+	bt_setup smc_macos27.txt empty
+	bt_run 30 discharge 50
+	check "empty ioreg: discharge exits non-zero" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	check "empty ioreg: discharge does not claim completion" bash -c "! grep -q 'Discharging completed' <<<\"\$1\"" _ "$BT_OUT"
+	check "empty ioreg: last SMC write restores the adapter (CHIE -w 00)" [ "$(tail -n 1 "$T/smc_writes.log")" == "CHIE -w 00" ]
+	bt_run 30 charge 90
+	check "empty ioreg: charge exits non-zero" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	check "empty ioreg: charge does not claim completion" bash -c "! grep -q 'Charging completed' <<<\"\$1\"" _ "$BT_OUT"
+	bt_teardown
+
+	bt_setup smc_macos26.txt empty
+	bt_run 30 discharge 50
+	check "empty ioreg (26): discharge exits non-zero" test "$BT_RC" -ne 0 -a "$BT_TIMED_OUT" -eq 0
+	check "empty ioreg (26): adapter restored (CHIE -w 00 after CHIE -w 08)" bash -c "grep -E '^CHIE ' '$T/smc_writes.log' | tail -n 1 | grep -qx 'CHIE -w 00'"
+	check "empty ioreg (26): charging re-enabled last (CHTE -w 00000000)" [ "$(tail -n 1 "$T/smc_writes.log")" == "CHTE -w 00000000" ]
+	bt_teardown
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
