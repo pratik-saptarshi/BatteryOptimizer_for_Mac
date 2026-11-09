@@ -1607,7 +1607,7 @@ fi
 # Charging on/off controller
 if [[ "$action" == "charge" ]]; then
 
-	trap charge_interrupted SIGINT SIGTERM
+	trap charge_interrupted SIGINT SIGTERM SIGHUP
 	trap charge_terminated SIGUSR1
 
 	# kill running charge process
@@ -1727,7 +1727,7 @@ fi
 # Discharging on/off controller
 if [[ "$action" == "discharge" ]]; then
 
-	trap discharge_interrupted SIGINT SIGTERM
+	trap discharge_interrupted SIGINT SIGTERM SIGHUP
 	trap discharge_terminated SIGUSR1
 
 	# kill running discharge process
@@ -2286,7 +2286,7 @@ fi
 # Battery calibration
 if [[ "$action" == "calibrate" ]]; then
 
-	trap calibrate_interrupted SIGINT SIGTERM
+	trap calibrate_interrupted SIGINT SIGTERM SIGHUP
 
 	if ! [[ -t 0 ]] && [[ "$setting" != "force" ]]; then # if the command is not entered from stdin (terminal) by a person, meaning it is a scheduled calibration
 		# check schedule to see if this week should calibrate

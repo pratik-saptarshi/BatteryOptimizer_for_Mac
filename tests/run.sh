@@ -325,6 +325,45 @@ test_r8_visudo_validation_failure_exits_nonzero() {
 	bt_teardown
 }
 
+# ------------------------------------------------------------- R9: SIGHUP traps
+test_r9_hup_during_discharge_restores_adapter() {
+	bt_setup smc_macos26.txt ioreg_legacy
+	BT_SLEEP_MAX=2 bt_start_bg discharge 50
+	if bt_wait_for 20 "$T/smc_writes.log" "CHIE -w 08"; then
+		command sleep 1
+		kill -HUP "$BT_BG_PID" 2>/dev/null
+		wait "$BT_BG_PID" 2>/dev/null
+		bt_wait_for 5 "$T/smc_writes.log" "CHIE -w 00"
+		command sleep 1.5
+		check "HUP during discharge: last write re-enables the adapter (CHIE -w 00)" [ "$(tail -n 1 "$T/smc_writes.log")" == "CHIE -w 00" ]
+	else
+		not_ok "HUP during discharge: discharge never started" "$(cat "$T/smc_writes.log")"
+	fi
+	bt_teardown
+}
+
+test_r9_hup_during_charge_stops_charging() {
+	bt_setup smc_macos26.txt ioreg_legacy
+	BT_SLEEP_MAX=2 bt_start_bg charge 90
+	if bt_wait_for 20 "$T/smc_writes.log" "CHTE -w 00000000"; then
+		command sleep 1
+		kill -HUP "$BT_BG_PID" 2>/dev/null
+		wait "$BT_BG_PID" 2>/dev/null
+		command sleep 1.5
+		check "HUP during charge: handler ran (last charge write is CHTE -w 01000000)" [ "$(grep '^CHTE ' "$T/smc_writes.log" | tail -n 1)" == "CHTE -w 01000000" ]
+	else
+		not_ok "HUP during charge: charge never started" "$(cat "$T/smc_writes.log")"
+	fi
+	bt_teardown
+}
+
+test_r9_traps_include_hup() {
+	check "charge trap covers SIGHUP" grep -q '^	trap charge_interrupted SIGINT SIGTERM SIGHUP$' "$BT_REPO/battery.sh"
+	check "discharge trap covers SIGHUP" grep -q '^	trap discharge_interrupted SIGINT SIGTERM SIGHUP$' "$BT_REPO/battery.sh"
+	check "calibrate trap covers SIGHUP" grep -q '^	trap calibrate_interrupted SIGINT SIGTERM SIGHUP$' "$BT_REPO/battery.sh"
+	check "no EXIT trap added to charge/discharge/calibrate" bash -c "! grep -E '^	trap (charge|discharge|calibrate)_interrupted.*EXIT' '$BT_REPO/battery.sh'"
+}
+
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 	run_test "$t"
 done
