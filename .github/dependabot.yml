@@ -1,0 +1,46 @@
+# Dependabot version updates.
+# Security updates are separate: controlled by the "Dependabot security updates"
+# repo setting, they ignore `cooldown` and `open-pull-requests-limit`.
+# `cooldown` delays brand-new releases (supply-chain hygiene).
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm-app-patch:
+        update-types: ["patch"]
+      npm-app-minor:
+        update-types: ["minor"]
+  - package-ecosystem: "npm"
+    directory: "/assets"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm-assets-patch:
+        update-types: ["patch"]
+      npm-assets-minor:
+        update-types: ["minor"]
