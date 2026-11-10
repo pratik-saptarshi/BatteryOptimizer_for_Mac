@@ -2,7 +2,7 @@
 
 ## Supported Branch
 
-Security fixes are supported on `develop`.
+Security fixes are supported on `main` and `develop`. `main` is the distributed branch users install from (see `README.md` and `setup.sh`, which set `update_branch="main"`); `develop` is the integration branch and receives fixes first.
 
 ## Reporting a Vulnerability
 
